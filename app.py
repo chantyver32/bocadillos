@@ -1,106 +1,129 @@
 import streamlit as st
-import barcode
-from barcode.writer import ImageWriter
-import io
-from docx import Document
-from docx.shared import Cm, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+import urllib.parse
+import datetime
 
-# Configuración de la página Streamlit
-st.set_page_config(page_title="Generador de Etiquetas Compactas", layout="centered")
+# Configuración inicial de la página
+st.set_page_config(page_title="Control de Bocadillos", layout="wide")
 
-st.title("Generador de Etiquetas 🏷️")
-st.write("Copia y pega tu lista de productos aquí:")
+# Lista de productos solicitada
+productos = [
+    "Tuti", "Cubilete Queso", "Hojaldra Jamón", "Chorizo Hojaldrado",
+    "Salchicha Hojaldrada", "V. Jamón Queso", "V. Pierna", 
+    "V. Picadillo", "V. Cochinita"
+]
 
-# Lista de tus productos cargada por defecto
-productos_default = """Americano 210 ml $25, CFAMEGR
-Americano 315 ml $32, CFAMG
-Expresso 90 ml $28, CFEPRG
-Té de Manzanilla 315 ml $32, TMLA
-Capuchino 210 ml $38, CFDCF
-Capuchino 315 ml $54, CFDGG
-Lechero 210 ml $38, CFDLG
-Lechero 315 ml $54, CFDLC
-Latte Caramel Toffe 315 ml $54, CCTFFD
-Latte Arroz con Leche 315 ml $54, ARLTTE
-Latte Chai 315 ml $57, CFMDL
-Latte Canela 315 ml $59, LTTECANDESC
-Extra Extracto de Café 18 gr $18, CEXCAF
-Extra Crema Batida 15 gr $12, CREMEXT
-Extra Leche Deslactosada 60 ml $6, EXTLDES
-Extra Jarabe Canela 25 ml $18, EXTRJCNL"""
+# 1. Inicializar el inventario en el estado de la sesión
+if 'inv' not in st.session_state:
+    st.session_state.inv = {
+        p: {
+            "cajas": 0, 
+            "sueltas": 0, 
+            "pz_caja": 12, # Por defecto asumo 12, pero se puede editar
+            "caducidad": datetime.date.today()
+        } for p in productos
+    }
 
-texto_entrada = st.text_area("Formato: Nombre, Código", value=productos_default, height=250)
+# --- Funciones de Lógica ---
 
-if st.button("Generar Hoja de Etiquetas"):
-    if texto_entrada.strip():
-        doc = Document()
-        
-        # --- AJUSTES DE MARGENES PARA APROVECHAR LA HOJA ---
-        section = doc.sections[0]
-        section.top_margin = Cm(1)
-        section.bottom_margin = Cm(1)
-        section.left_margin = Cm(1)
-        section.right_margin = Cm(1)
+def hornear(p, cantidad):
+    """Descuenta las piezas seleccionadas para hornear del total."""
+    d = st.session_state.inv[p]
+    total_actual = (d["cajas"] * d["pz_caja"]) + d["sueltas"]
+    
+    if cantidad > total_actual:
+        st.toast(f"⚠️ No hay suficientes piezas de {p} para hornear.", icon="❌")
+        return
+    
+    # Restar y recalcular cajas y sueltas
+    nuevo_total = total_actual - cantidad
+    st.session_state.inv[p]["cajas"] = nuevo_total // d["pz_caja"]
+    st.session_state.inv[p]["sueltas"] = nuevo_total % d["pz_caja"]
+    st.toast(f"✅ Se descontaron {cantidad} piezas de {p}.", icon="🥐")
 
-        lineas = [linea.strip() for linea in texto_entrada.split('\n') if "," in linea]
-        
-        if lineas:
-            # Crear tabla (3 columnas para que quepan todas en una fila)
-            num_columnas = 3
-            num_filas = (len(lineas) + num_columnas - 1) // num_columnas
-            tabla = doc.add_table(rows=num_filas, cols=num_columnas)
-            tabla.autofit = True
+def guardar_edicion(p, c, s, pz, cad):
+    """Guarda los ajustes manuales de inventario que ingresa el usuario."""
+    st.session_state.inv[p]["cajas"] = c
+    st.session_state.inv[p]["sueltas"] = s
+    st.session_state.inv[p]["pz_caja"] = pz
+    st.session_state.inv[p]["caducidad"] = cad
+    st.toast(f"Inventario de {p} actualizado.", icon="💾")
 
-            code128 = barcode.get_barcode_class('code128')
+# --- Interfaz de Usuario ---
 
-            for index, linea in enumerate(lineas):
-                fila_idx = index // num_columnas
-                col_idx = index % num_columnas
-                celda = tabla.cell(fila_idx, col_idx)
-                
-                nombre_producto, codigo_barras = [p.strip() for p in linea.split(",", 1)]
+st.title("🥐 Control de Inventario y Horneado")
 
-                # Generar código de barras
-                buffer = io.BytesIO()
-                mi_codigo = code128(codigo_barras, writer=ImageWriter())
-                mi_codigo.write(buffer, options={
-                    'write_text': False, 
-                    'module_width': 0.2, # Más delgado
-                    'module_height': 8,   # Más bajo
-                    'quiet_zone': 1
-                })
-                buffer.seek(0)
+# Dividimos la app en tres pestañas para mantenerla limpia
+tab1, tab2, tab3 = st.tabs(["🔥 Área de Horneado (Dashboard)", "📦 Ingreso de Inventario", "📱 Reporte WhatsApp"])
 
-                # Formato dentro de la celda
-                p = celda.paragraphs[0]
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
-                # --- NOMBRE DEL PRODUCTO EN NEGRITAS ---
-                run_nombre = p.add_run(f"{nombre_producto}\n")
-                run_nombre.bold = True
-                run_nombre.font.size = Pt(10) # Un poco más grande para resaltar
-                
-                # Imagen (Tamaño reducido)
-                run_img = p.add_run()
-                run_img.add_picture(buffer, width=Cm(4), height=Cm(1.8))
-                
-                # --- CÓDIGO SIN NEGRITAS ---
-                run_codigo = p.add_run(f"\n{codigo_barras}")
-                run_codigo.bold = False # Texto normal para crear contraste
-                run_codigo.font.size = Pt(8)
-
-            # Guardar y descargar
-            doc_buffer = io.BytesIO()
-            doc.save(doc_buffer)
-            doc_buffer.seek(0)
+# Pestaña 1: Horneado y vista rápida
+with tab1:
+    st.subheader("Estado Actual y Despacho")
+    st.write("Selecciona cuántas piezas agarras de cada producto para hornear.")
+    
+    cols = st.columns(3) # Cuadrícula de 3 columnas
+    for idx, p in enumerate(productos):
+        with cols[idx % 3]:
+            d = st.session_state.inv[p]
+            tot = (d["cajas"] * d["pz_caja"]) + d["sueltas"]
             
-            st.success(f"Se acomodaron {len(lineas)} etiquetas en una cuadrícula.")
-            st.download_button(
-                label="📥 Descargar Word (1 Hoja)",
-                data=doc_buffer,
-                file_name="etiquetas_compactas.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            with st.container(border=True):
+                st.markdown(f"### {p}")
+                st.write(f"**Total disponible:** {tot} pz")
+                st.write(f"📦 Cajas: {d['cajas']} | 🥐 Sueltas: {d['sueltas']}")
+                st.write(f"📅 Caducidad: {d['caducidad'].strftime('%d/%m/%Y')}")
+                
+                # Botón y selección para hornear
+                c1, c2 = st.columns([1, 1])
+                cant_hornear = c1.number_input("Cant.", min_value=1, step=1, key=f"h_{p}", label_visibility="collapsed")
+                
+                if c2.button("Hornear", key=f"btn_h_{p}", use_container_width=True):
+                    hornear(p, cant_hornear)
+                    st.rerun()
+
+# Pestaña 2: Registro de llegada de mercancía
+with tab2:
+    st.subheader("Ajuste Manual de Inventario")
+    st.info("Utiliza esta sección cuando llegue nueva mercancía para registrar tus cajas, piezas y vigencia.")
+    
+    for p in productos:
+        with st.expander(f"Actualizar {p}"):
+            d = st.session_state.inv[p]
+            c1, c2, c3, c4, c5 = st.columns(5)
+            new_c = c1.number_input("Cajas", min_value=0, value=d["cajas"], key=f"ec_{p}")
+            new_s = c2.number_input("Sueltas", min_value=0, value=d["sueltas"], key=f"es_{p}")
+            new_pz = c3.number_input("Pz / Caja", min_value=1, value=d["pz_caja"], key=f"epz_{p}")
+            new_cad = c4.date_input("Caducidad", value=d["caducidad"], key=f"ecad_{p}")
+            
+            # Un pequeño espacio para alinear el botón
+            c5.write("")
+            c5.write("")
+            if c5.button("Guardar", key=f"save_{p}", use_container_width=True):
+                guardar_edicion(p, new_c, new_s, new_pz, new_cad)
+                st.rerun()
+
+# Pestaña 3: Exportar a WhatsApp
+with tab3:
+    st.subheader("Compartir Reporte de Stock")
+    
+    telefono = st.text_input("Número de WhatsApp destino (incluye código de país, ej. 52 para México: 521234567890)")
+    
+    # Generar el texto del reporte automáticamente
+    reporte = "🍞 *Reporte de Inventario de Bocadillos* 🍞\n\n"
+    for p in productos:
+        d = st.session_state.inv[p]
+        tot = (d["cajas"] * d["pz_caja"]) + d["sueltas"]
+        reporte += f"*{p}*\n"
+        reporte += f"▪️ Total: {tot} pz (Cajas: {d['cajas']}, Sueltas: {d['sueltas']})\n"
+        reporte += f"▪️ Caducidad: {d['caducidad'].strftime('%d/%m/%Y')}\n\n"
+    
+    st.text_area("Vista previa del mensaje:", value=reporte, height=350)
+    
+    if telefono.strip():
+        # Codificar el texto para que los espacios y saltos de línea se envíen bien en la URL
+        mensaje_codificado = urllib.parse.quote(reporte)
+        link_wa = f"https://wa.me/{telefono.strip()}?text={mensaje_codificado}"
+        
+        # Usamos link_button (disponible en versiones recientes de Streamlit)
+        st.link_button("📲 Abrir WhatsApp y Enviar", link_wa, type="primary")
     else:
-        st.error("No hay datos para procesar.")
+        st.warning("⚠️ Ingresa un número de teléfono válido arriba para habilitar el botón de envío.")
