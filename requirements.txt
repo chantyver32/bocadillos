@@ -2,3 +2,4 @@ streamlit
 python-barcode
 python-docx
 Pillow
+python-docx
