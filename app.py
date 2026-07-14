@@ -55,7 +55,8 @@ if st.button("Generar Word con los 4 Códigos", type="primary"):
             clase_codigo = barcode.get_barcode_class("code128")
 
             # 3. Procesar cada volován y colocarlo en su celda respectiva
-            for idx, vol en enumerate(datos_ingresados):
+            # AQUÍ ESTÁ LA CORRECCIÓN: "in" en lugar de "en"
+            for idx, vol in enumerate(datos_ingresados):
                 # Calcular en qué fila y columna va (0,0), (0,1), (1,0), (1,1)
                 fila = idx // 2
                 columna = idx % 2
