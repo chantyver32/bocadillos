@@ -6,78 +6,111 @@ import docx
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-st.set_page_config(page_title="Generador de Etiquetas de Volovanes", layout="centered")
+st.set_page_config(page_title="Generador Múltiple de Volovanes", layout="wide")
 
-st.title("Generador de Fichas y Códigos de Barras 🥐🏷️")
-st.markdown("Ingresa los datos del producto para generar su código de barras y el documento de Word correspondiente.")
+st.title("Generador Múltiple de Códigos 🥐🏷️")
+st.markdown("Ingresa hasta 4 volovanes a la vez. Se generará una sola hoja de Word (lista para imprimir) con los 4 códigos ordenados.")
 
-# Formulario de entrada de datos
-nombre_volovan = st.text_input("Nombre del Volován:", placeholder="Ej. Volován de Jamón y Queso")
-datos_codigo = st.text_input("Texto o Número para el Código de Barras:", placeholder="Ej. VOL-JAM01")
+# Crear las entradas para 4 volovanes usando columnas
+volovanes = []
+for i in range(4):
+    st.markdown(f"### Volován {i + 1}")
+    col1, col2 = st.columns(2)
+    with col1:
+        nombre = st.text_input(f"Nombre del Volován {i+1}:", key=f"nom_{i}", placeholder="Ej. Volován de Jaiba")
+    with col2:
+        codigo = st.text_input(f"Código / Texto esperado {i+1}:", key=f"cod_{i}", placeholder="Ej. VOL-JAI01")
+    
+    volovanes.append({"nombre": nombre, "codigo": codigo})
 
-tipo_codigo = st.selectbox(
-    "Selecciona el formato del código:", 
-    ["code128", "ean13", "upc"],
-    help="Code128 es ideal porque acepta letras y números."
-)
+# Separador visual
+st.divider()
 
-if st.button("Generar Documento y Código"):
-    if nombre_volovan and datos_codigo:
+if st.button("Generar Word con los 4 Códigos", type="primary"):
+    # Verificar que al menos uno tenga datos
+    datos_ingresados = [v for v in volovanes if v["nombre"] and v["codigo"]]
+    
+    if datos_ingresados:
         try:
-            # 1. Generar el código de barras en memoria
-            clase_codigo = barcode.get_barcode_class(tipo_codigo)
-            codigo = clase_codigo(datos_codigo, writer=ImageWriter())
-            
-            buffer_imagen = BytesIO()
-            codigo.write(buffer_imagen)
-            buffer_imagen.seek(0) # Reiniciar el puntero del buffer de la imagen
-
-            # Mostrar vista previa del código en la app
-            st.image(buffer_imagen, caption=f"Vista previa del código para: {nombre_volovan}", use_container_width=False)
-
-            # 2. Crear el documento de Word (.docx)
+            # 1. Crear el documento de Word
             doc = docx.Document()
             
-            # Configurar un título en el Word
-            titulo = doc.add_paragraph()
-            titulo_run = titulo.add_run("FICHA OPERATIVA DE PRODUCTO")
-            titulo_run.bold = True
-            titulo_run.font.size = Pt(16)
+            # Reducir los márgenes de la hoja para asegurar que quepan los 4
+            for section in doc.sections:
+                section.top_margin = Inches(0.5)
+                section.bottom_margin = Inches(0.5)
+                section.left_margin = Inches(0.5)
+                section.right_margin = Inches(0.5)
+
+            # Insertar título general (opcional)
+            titulo = doc.add_paragraph("ETIQUETAS DE PRODUCTO")
             titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            
-            doc.add_paragraph("-" * 50) # Línea divisoria simple
+            titulo.runs[0].bold = True
 
-            # Agregar los datos del producto
-            p_nombre = doc.add_paragraph()
-            p_nombre.add_run("Producto: ").bold = True
-            p_nombre.add_run(nombre_volovan).font.size = Pt(12)
+            # 2. Crear una tabla 2x2 para acomodar los 4 códigos en una página
+            tabla = doc.add_table(rows=2, cols=2)
+            # Para evitar que la tabla se deforme
+            tabla.autofit = False 
 
-            p_codigo = doc.add_paragraph()
-            p_codigo.add_run("Código Identificador: ").bold = True
-            p_codigo.add_run(datos_codigo).font.size = Pt(12)
+            clase_codigo = barcode.get_barcode_class("code128")
 
-            doc.add_paragraph("Código de Barras generado:").paragraph_format.space_after = Pt(12)
+            # 3. Procesar cada volován y colocarlo en su celda respectiva
+            for idx, vol en enumerate(datos_ingresados):
+                # Calcular en qué fila y columna va (0,0), (0,1), (1,0), (1,1)
+                fila = idx // 2
+                columna = idx % 2
+                celda = tabla.cell(fila, columna)
 
-            # Insertar la imagen del código de barras directamente desde el buffer de memoria
-            buffer_imagen.seek(0) # Asegurar que está al inicio
-            doc.add_picture(buffer_imagen, width=Inches(3.5))
-            
-            # Guardar el documento de Word en un buffer de memoria para la descarga
+                # Generar el código de barras (sin el texto por defecto para ponerlo nosotros)
+                codigo_obj = clase_codigo(vol["codigo"], writer=ImageWriter())
+                buffer_imagen = BytesIO()
+                # Opciones: quitamos el texto automático de la imagen para que quede más limpio
+                opciones_imagen = {"write_text": False, "module_height": 10.0, "quiet_zone": 1.0}
+                codigo_obj.write(buffer_imagen, options=opciones_imagen)
+                buffer_imagen.seek(0)
+
+                # -- AGREGAR DATOS A LA CELDA DE WORD --
+                
+                # A. Nombre del Volován (Arriba)
+                p_nombre = celda.paragraphs[0]
+                p_nombre.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run_nombre = p_nombre.add_run(vol["nombre"])
+                run_nombre.bold = True
+                run_nombre.font.size = Pt(14)
+                
+                # B. Imagen del Código (En medio)
+                p_imagen = celda.add_paragraph()
+                p_imagen.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run_imagen = p_imagen.add_run()
+                # Ajustamos el ancho a 3 pulgadas para que quepan dos columnas perfecto
+                run_imagen.add_picture(buffer_imagen, width=Inches(3.0))
+                
+                # C. Texto esperado / Código (Abajo)
+                p_texto = celda.add_paragraph()
+                p_texto.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run_texto = p_texto.add_run(vol["codigo"])
+                run_texto.font.size = Pt(12)
+                
+                # Dar un poco de espacio al final de la celda
+                p_espacio = celda.add_paragraph()
+                p_espacio.paragraph_format.space_after = Pt(20)
+
+            # 4. Guardar Word en memoria
             buffer_word = BytesIO()
             doc.save(buffer_word)
             buffer_word.seek(0)
 
-            st.success("¡Todo se ha generado correctamente!")
+            st.success("¡Documento generado con éxito!")
 
-            # Botón para descargar el archivo de Word
+            # Botón de descarga
             st.download_button(
-                label="📥 Descargar Documento de Word (.docx)",
+                label="📥 Descargar Hoja de Impresión (.docx)",
                 data=buffer_word.getvalue(),
-                file_name=f"Ficha_{nombre_volovan.replace(' ', '_')}.docx",
+                file_name="Etiquetas_4_Volovanes.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
 
         except Exception as e:
-            st.error(f"Ocurrió un error al procesar los datos. Verifica las restricciones del formato del código elegido.")
+            st.error(f"Ocurrió un error al generar el documento: {e}")
     else:
-        st.warning("Por favor, rellena tanto el nombre del volován como los datos del código antes de continuar.")
+        st.warning("Por favor, llena el nombre y el código de al menos un volován.")
