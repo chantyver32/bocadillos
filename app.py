@@ -1,67 +1,43 @@
 import streamlit as st
-import math
 
-# 1. Configuración de piezas por caja
-PIEZAS_POR_CAJA = {
-    "Cubilete": 16,
-    "Tuti": 27,
-    "Salchicha y Chorizo": 20,
-    "Hojaldra de Jamón": 48,
-    "Volovanes (Todos)": 9
-}
+# 1. Simulamos tu inventario inicial (esto vendría de tu base de datos o archivo)
+if "inventario" not in st.session_state:
+    st.session_state.inventario = {
+        "Cubilete": 160,          # Tienes 160 crudos
+        "Tuti": 100,
+        "Volovan": 50,
+        "Salchicha_Chorizo": 80,
+        "Hojaldra": 100
+    }
 
-st.header("🥐 Champlitte: Control de Horneo y Cajas")
+st.header("🥐 Restar del Inventario")
 
-st.subheader("Registro de Horneo")
-
-# 2. Entradas de horneo con sus reglas específicas
-col1, col2 = st.columns(2)
-
-with col1:
-    # Cubilete: 16 a fuerza (usamos step=16 para obligar a que sean múltiplos de 16)
-    horneo_cubilete = st.number_input("Cubiletes (Lotes de 16 a fuerza)", min_value=0, step=16)
-    
-    # Tuti: de a 9 o por pieza (dejamos step=1 pero ponemos una nota)
-    horneo_tuti = st.number_input("Tutis (De a 9 o por pieza)", min_value=0, step=1)
-    
-    # Volovanes: por pieza
-    horneo_volovan = st.number_input("Volovanes (Por pieza)", min_value=0, step=1)
-
-with col2:
-    # Salchichas y chorizos: por pieza
-    horneo_salchicha = st.number_input("Salchichas y Chorizos (Por pieza)", min_value=0, step=1)
-    
-    # Hojaldra jamón: por pieza
-    horneo_hojaldra = st.number_input("Hojaldras de Jamón (Por pieza)", min_value=0, step=1)
+# Mostramos el inventario actual
+st.write("### Inventario Actual (Crudos):")
+st.write(st.session_state.inventario)
 
 st.divider()
 
-# 3. Cálculo de cajas necesarias según lo horneado
-st.subheader("📦 Cálculo de Cajas")
+# 2. Entradas de lo que vas a hornear hoy
+st.subheader("¿Qué vas a hornear?")
+horneo_cubilete = st.number_input("Cubiletes a hornear (múltiplos de 16)", min_value=0, step=16)
+horneo_volovan = st.number_input("Volovanes a hornear (por pieza)", min_value=0, step=1)
 
-def calcular_cajas(piezas, tipo_pan):
-    capacidad = PIEZAS_POR_CAJA[tipo_pan]
-    cajas_completas = piezas // capacidad
-    sobrantes = piezas % capacidad
-    return cajas_completas, sobrantes
-
-# Ejemplo de mostrar resultados si se ingresaron cantidades
-if horneo_cubilete > 0:
-    cajas, sobran = calcular_cajas(horneo_cubilete, "Cubilete")
-    st.write(f"**Cubiletes:** {cajas} caja(s) completa(s) de 16 pz.")
-
-if horneo_tuti > 0:
-    cajas, sobran = calcular_cajas(horneo_tuti, "Tuti")
-    st.write(f"**Tutis:** {cajas} caja(s) de 27 pz. (Sobran {sobran} pz.)")
+# 3. Botón para aplicar la resta
+if st.button("Registrar y Restar del Inventario"):
     
-if horneo_volovan > 0:
-    cajas, sobran = calcular_cajas(horneo_volovan, "Volovanes (Todos)")
-    st.write(f"**Volovanes:** {cajas} caja(s) de 9 pz. (Sobran {sobran} pz.)")
-
-if horneo_hojaldra > 0:
-    cajas, sobran = calcular_cajas(horneo_hojaldra, "Hojaldra de Jamón")
-    st.write(f"**Hojaldras:** {cajas} caja(s) de 48 pz. (Sobran {sobran} pz.)")
-
-if horneo_salchicha > 0:
-    cajas, sobran = calcular_cajas(horneo_salchicha, "Salchicha y Chorizo")
-    st.write(f"**Salchicha/Chorizo:** {cajas} caja(s) de 20 pz. (Sobran {sobran} pz.)")
+    # Verificamos que haya suficiente inventario antes de restar
+    if horneo_cubilete > st.session_state.inventario["Cubilete"]:
+        st.error("⚠️ No tienes suficientes Cubiletes en el inventario.")
+    elif horneo_volovan > st.session_state.inventario["Volovan"]:
+        st.error("⚠️ No tienes suficientes Volovanes en el inventario.")
+    else:
+        # A LA CANTIDAD SE LE RESTA LO HORNEADO
+        st.session_state.inventario["Cubilete"] -= horneo_cubilete
+        st.session_state.inventario["Volovan"] -= horneo_volovan
+        
+        st.success("✅ ¡Cantidades restadas con éxito!")
+        
+        # Volvemos a mostrar el inventario actualizado
+        st.write("### Nuevo Inventario:")
+        st.write(st.session_state.inventario)
