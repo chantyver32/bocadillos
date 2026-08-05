@@ -30,20 +30,13 @@ def init_db():
     conn = sqlite3.connect("inventario.db")
     c = conn.cursor()
     
-    # Tabla principal del inventario actualizada con fecha de caducidad
+    # Tabla principal del inventario
     c.execute('''CREATE TABLE IF NOT EXISTS inventario (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT UNIQUE,
                     linea TEXT,
                     cantidad INTEGER DEFAULT 0,
                     caducidad DATE
-                )''')
-    
-    # Tabla secundaria para los rellenos
-    c.execute('''CREATE TABLE IF NOT EXISTS rellenos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT UNIQUE,
-                    relleno TEXT
                 )''')
     
     # Insertar los productos por defecto si la tabla está vacía
@@ -71,9 +64,6 @@ def init_db():
         ]
         c.executemany("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, ?, ?)", productos_default)
         
-        rellenos_default = [(p[0], "Sin asignar") for p in productos_default]
-        c.executemany("INSERT INTO rellenos (producto, relleno) VALUES (?, ?)", rellenos_default)
-        
     conn.commit()
     conn.close()
 
@@ -96,14 +86,6 @@ def update_inventory(df_updated):
     conn.commit()
     conn.close()
 
-def update_fillings(df_updated):
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    for _, row in df_updated.iterrows():
-        c.execute("UPDATE rellenos SET relleno = ? WHERE id = ?", (row["relleno"], row["id"]))
-    conn.commit()
-    conn.close()
-
 def registrar_venta(producto):
     conn = sqlite3.connect("inventario.db")
     c = conn.cursor()
@@ -113,25 +95,31 @@ def registrar_venta(producto):
     conn.close()
     return exito
 
-def obtener_recomendacion():
-    # Lógica de recomendación: Prioriza fecha próxima a caducar. En caso de empate, el mayor stock.
+def obtener_recomendaciones():
+    # Encuentra la fecha de caducidad más cercana y trae TODOS los pasteles con esa fecha,
+    # ordenados del que tiene mayor cantidad al que tiene menor cantidad.
     conn = sqlite3.connect("inventario.db")
     c = conn.cursor()
     c.execute('''
-        SELECT i.producto, r.relleno, i.cantidad, i.caducidad
-        FROM inventario i
-        JOIN rellenos r ON i.producto = r.producto
-        WHERE i.cantidad > 0 AND i.caducidad IS NOT NULL
-        ORDER BY i.caducidad ASC, i.cantidad DESC LIMIT 1
+        SELECT producto, cantidad, caducidad
+        FROM inventario
+        WHERE cantidad > 0 AND caducidad IS NOT NULL
+          AND caducidad = (
+              SELECT MIN(caducidad) 
+              FROM inventario 
+              WHERE cantidad > 0 AND caducidad IS NOT NULL
+          )
+        ORDER BY cantidad DESC
     ''')
-    recomendacion = c.fetchone()
+    recomendaciones = c.fetchall()
     conn.close()
-    return recomendacion
+    return recomendaciones
 
 # --- 3. INTERFAZ DE STREAMLIT ---
 st.title("Proyectado de Pastelería Champlitte")
 
-tab1, tab2 = st.tabs(["⚙️ Base de Datos y Rellenos", "🛒 Ventas y Recomendaciones"])
+# Ya no hay pestaña de rellenos
+tab1, tab2 = st.tabs(["⚙️ Inventario", "🛒 Ventas y Recomendaciones"])
 
 with tab1:
     st.header("Inventario de Sucursal")
@@ -160,25 +148,6 @@ with tab1:
         update_inventory(edited_inv)
         st.success("¡Base de datos de inventario actualizada!")
 
-    st.divider()
-
-    st.header("Gestor de Rellenos")
-    st.write("Edita la columna **relleno** para personalizar las recomendaciones.")
-    
-    df_rellenos = load_data("rellenos")
-    
-    edited_rellenos = st.data_editor(
-        df_rellenos, 
-        disabled=["id", "producto"], 
-        hide_index=True, 
-        use_container_width=True,
-        key="rell_editor"
-    )
-    
-    if st.button("Guardar Rellenos"):
-        update_fillings(edited_rellenos)
-        st.success("¡Rellenos actualizados correctamente!")
-
 
 with tab2:
     st.header("Punto de Venta")
@@ -187,7 +156,6 @@ with tab2:
     disponibles = df_actual[df_actual["cantidad"] > 0]["producto"].tolist()
     
     if disponibles:
-        # Se agrega index=None para que aparezca vacío por defecto y permita teclear
         producto_a_vender = st.selectbox(
             "Selecciona el pastel a descontar del inventario:", 
             options=disponibles,
@@ -195,7 +163,6 @@ with tab2:
             placeholder="Escribe el nombre del pastel..."
         )
         
-        # El botón solo funciona si hay un pastel seleccionado
         if producto_a_vender:
             if st.button("Registrar Venta", type="primary"):
                 if registrar_venta(producto_a_vender):
@@ -210,12 +177,13 @@ with tab2:
     st.divider()
     
     st.header("Recomendación de Venta")
-    st.write("*(El sistema sugiere el pastel más próximo a caducar. Si hay empate, sugiere el de mayor stock)*")
+    st.write("*(El sistema sugiere los pasteles más próximos a caducar)*")
     
-    recomendacion = obtener_recomendacion()
-    if recomendacion:
-        pastel, relleno, cant, caducidad = recomendacion
-        # Se cambió "Pastel sugerido" por "Pastel recomendado"
-        st.info(f"🍰 **Pastel recomendado:** {pastel}\n\n🍯 **Relleno asignado:** {relleno}\n\n📦 *Stock actual: {cant} unidades*\n\n⏳ *Fecha límite:* **{caducidad}**")
+    recomendaciones = obtener_recomendaciones()
+    if recomendaciones:
+        st.write("### 🍰 Pasteles Recomendados:")
+        for rec in recomendaciones:
+            pastel, cant, caducidad = rec
+            st.info(f"**{pastel}**\n\n📦 *Stock actual: {cant} unidades*  |  ⏳ *Fecha límite:* **{caducidad}**")
     else:
         st.info("Sin datos suficientes para sugerir.")
