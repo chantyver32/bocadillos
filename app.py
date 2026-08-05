@@ -1,8 +1,29 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import os
 
 st.set_page_config(page_title="Proyectado Champlitte", layout="wide")
+
+# --- SIDEBAR: ADMINISTRACIÓN ---
+with st.sidebar:
+    st.header("🛠️ Administración")
+    st.warning("⚠️ **Peligro:** Borrar la base de datos eliminará todo el inventario guardado y restablecerá los valores por defecto.")
+    
+    # Se agrega una casilla de confirmación para evitar borrados por accidente
+    confirmar = st.checkbox("Habilitar borrado de base de datos")
+    
+    if confirmar:
+        if st.button("Borrar Base de Datos", type="primary", use_container_width=True):
+            if os.path.exists("inventario.db"):
+                try:
+                    os.remove("inventario.db")
+                    st.success("Base de datos eliminada. Reiniciando...")
+                    st.rerun() # Reinicia la app para que vuelva a crear la BD limpia
+                except Exception as e:
+                    st.error(f"Error al borrar: {e}")
+            else:
+                st.info("La base de datos no existe actualmente.")
 
 # --- 1. INICIALIZACIÓN Y CONEXIÓN A LA BASE DE DATOS ---
 def init_db():
@@ -175,3 +196,4 @@ with tab2:
         st.info(f"🍰 **Pastel sugerido:** {pastel}\n\n🍯 **Relleno asignado:** {relleno}\n\n📦 *Stock actual: {cant} unidades*")
     else:
         st.info("Sin datos suficientes para sugerir.")
+    
