@@ -159,25 +159,35 @@ with tab1:
     # Formulario dinámico
     col1, col2 = st.columns([2, 1])
     with col1:
-        prod_ingreso = st.selectbox("Selecciona el pastel a ingresar:", options=list(PRODUCTOS.keys()))
+        # Se agrega index=None para que aparezca en blanco por defecto
+        prod_ingreso = st.selectbox(
+            "Selecciona el pastel a ingresar:", 
+            options=list(PRODUCTOS.keys()),
+            index=None,
+            placeholder="Escribe o selecciona un pastel..."
+        )
     with col2:
         cant_ingreso = st.number_input("Cantidad que ingresa:", min_value=1, step=1, value=1)
     
-    st.write(f"📅 **Asigna la caducidad para las {cant_ingreso} unidades:**")
-    
-    # Generador automático de calendarios basado en la cantidad
-    columnas_fechas = st.columns(4) # Organiza los calendarios en hasta 4 columnas para que no se vea amontonado
-    fechas_asignadas = []
-    
-    for i in range(cant_ingreso):
-        with columnas_fechas[i % 4]: # Distribuye uniformemente
-            fecha = st.date_input(f"Caducidad unidad {i+1}", key=f"date_{i}")
-            fechas_asignadas.append(fecha)
-            
-    if st.button("➕ Añadir al Inventario", type="primary"):
-        procesar_ingreso(prod_ingreso, PRODUCTOS[prod_ingreso], fechas_asignadas)
-        st.success(f"Se han ingresado {cant_ingreso} unidades de {prod_ingreso} correctamente.")
-        st.rerun()
+    # Solo mostrar los calendarios si ya se seleccionó un pastel
+    if prod_ingreso:
+        st.write(f"📅 **Asigna la caducidad para las {cant_ingreso} unidades:**")
+        
+        # Generador automático de calendarios basado en la cantidad
+        columnas_fechas = st.columns(4) # Organiza los calendarios en hasta 4 columnas para que no se vea amontonado
+        fechas_asignadas = []
+        
+        for i in range(cant_ingreso):
+            with columnas_fechas[i % 4]: # Distribuye uniformemente
+                fecha = st.date_input(f"Caducidad unidad {i+1}", key=f"date_{i}")
+                fechas_asignadas.append(fecha)
+                
+        if st.button("➕ Añadir al Inventario", type="primary"):
+            procesar_ingreso(prod_ingreso, PRODUCTOS[prod_ingreso], fechas_asignadas)
+            st.success(f"Se han ingresado {cant_ingreso} unidades de {prod_ingreso} correctamente.")
+            st.rerun()
+    else:
+        st.info("👆 Selecciona un pastel para habilitar el registro de fechas.")
 
     st.divider()
     
@@ -192,7 +202,7 @@ with tab1:
         df_mostrar, 
         num_rows="dynamic",
         column_config={
-            "id": None, # CORRECCIÓN: Para ocultar la columna ID simplemente se le asigna None
+            "id": None, # Oculta la columna ID
             "producto": st.column_config.SelectboxColumn("Producto", options=list(PRODUCTOS.keys()), required=True),
             "linea": st.column_config.Column("Línea", disabled=True),
             "caducidad": st.column_config.DateColumn("Fecha de Caducidad", format="YYYY-MM-DD")
