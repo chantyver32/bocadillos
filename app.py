@@ -37,7 +37,7 @@ def init_db():
             ("Pastel Piña Coco Chico", "LÍNEA C"),
             ("Pastel Zanahoria Chico", "LÍNEA C"),
             ("Pastel Cheesecake Chico", "LÍNEA C"),
-            ("Pastel Carlos y Grande", "LÍNEA G"),
+            ("Pastel Carlos V Grande", "LÍNEA G"),
             ("Pastel Chocofichero Grande", "LÍNEA G"),
             ("Pastel Fresas c/Crema Grande", "LÍNEA G"),
             ("Pastel Macadamia Grande", "LÍNEA G"),
