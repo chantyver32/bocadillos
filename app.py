@@ -6,6 +6,12 @@ from datetime import date, timedelta
 
 st.set_page_config(page_title="Proyectado Champlitte", layout="wide")
 
+# --- MOSTRAR MENSAJE DE ÉXITO PENDIENTE ---
+# Esto atrapa los mensajes que guardamos antes de un st.rerun()
+if "mensaje_exito" in st.session_state:
+    st.success(st.session_state["mensaje_exito"])
+    del st.session_state["mensaje_exito"]
+
 # --- DATOS MAESTROS DE LA PASTELERÍA ---
 PRODUCTOS = {
     "Pastel Carlos V Chico": "LÍNEA C",
@@ -37,7 +43,8 @@ with st.sidebar:
             if os.path.exists("inventario.db"):
                 try:
                     os.remove("inventario.db")
-                    st.success("Base de datos eliminada. Reiniciando...")
+                    # Guardar mensaje antes de recargar
+                    st.session_state["mensaje_exito"] = "Base de datos eliminada. Reiniciando..."
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al borrar: {e}")
@@ -104,7 +111,7 @@ def registrar_venta(producto):
         WHERE producto = ? AND cantidad > 0 AND caducidad IS NOT NULL
         ORDER BY caducidad ASC 
         LIMIT 1
-    ''')
+    ''', (producto,)) 
     
     row = c.fetchone()
     exito = False
@@ -159,7 +166,6 @@ with tab1:
     # Formulario dinámico
     col1, col2 = st.columns([2, 1])
     with col1:
-        # Se agrega index=None para que aparezca en blanco por defecto
         prod_ingreso = st.selectbox(
             "Selecciona el pastel a ingresar:", 
             options=list(PRODUCTOS.keys()),
@@ -173,18 +179,19 @@ with tab1:
     if prod_ingreso:
         st.write(f"📅 **Asigna la caducidad para las {cant_ingreso} unidades:**")
         
-        # Generador automático de calendarios basado en la cantidad
-        columnas_fechas = st.columns(4) # Organiza los calendarios en hasta 4 columnas para que no se vea amontonado
+        columnas_fechas = st.columns(4) 
         fechas_asignadas = []
         
         for i in range(cant_ingreso):
-            with columnas_fechas[i % 4]: # Distribuye uniformemente
+            with columnas_fechas[i % 4]: 
                 fecha = st.date_input(f"Caducidad unidad {i+1}", key=f"date_{i}")
                 fechas_asignadas.append(fecha)
                 
         if st.button("➕ Añadir al Inventario", type="primary"):
             procesar_ingreso(prod_ingreso, PRODUCTOS[prod_ingreso], fechas_asignadas)
-            st.success(f"Se han ingresado {cant_ingreso} unidades de {prod_ingreso} correctamente.")
+            
+            # Guardamos el mensaje en la sesión ANTES de recargar
+            st.session_state["mensaje_exito"] = f"Se agregaron correctamente {cant_ingreso} unidades de {prod_ingreso}."
             st.rerun()
     else:
         st.info("👆 Selecciona un pastel para habilitar el registro de fechas.")
@@ -202,7 +209,7 @@ with tab1:
         df_mostrar, 
         num_rows="dynamic",
         column_config={
-            "id": None, # Oculta la columna ID
+            "id": None, 
             "producto": st.column_config.SelectboxColumn("Producto", options=list(PRODUCTOS.keys()), required=True),
             "linea": st.column_config.Column("Línea", disabled=True),
             "caducidad": st.column_config.DateColumn("Fecha de Caducidad", format="YYYY-MM-DD")
@@ -234,7 +241,8 @@ with tab2:
         if producto_a_vender:
             if st.button("Registrar Venta", type="primary"):
                 if registrar_venta(producto_a_vender):
-                    st.success(f"Venta registrada. Se descontó 1 unidad del lote más próximo a caducar de {producto_a_vender}.")
+                    # Guardar mensaje antes de recargar
+                    st.session_state["mensaje_exito"] = f"Venta registrada. Se descontó 1 unidad de {producto_a_vender}."
                     st.rerun() 
         else:
             st.button("Registrar Venta", type="primary", disabled=True)
@@ -255,3 +263,4 @@ with tab2:
             st.info(f"**{pastel}**\n\n📦 *Total en stock: {cant} unidades*  |  ⏳ *Fecha límite:* **{caducidad}**")
     else:
         st.info("Sin datos suficientes para sugerir.")
+    
