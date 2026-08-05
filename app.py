@@ -192,7 +192,7 @@ with tab1:
         df_mostrar, 
         num_rows="dynamic",
         column_config={
-            "id": st.column_config.Column("ID", disabled=True, hidden=True),
+            "id": None, # CORRECCIÓN: Para ocultar la columna ID simplemente se le asigna None
             "producto": st.column_config.SelectboxColumn("Producto", options=list(PRODUCTOS.keys()), required=True),
             "linea": st.column_config.Column("Línea", disabled=True),
             "caducidad": st.column_config.DateColumn("Fecha de Caducidad", format="YYYY-MM-DD")
