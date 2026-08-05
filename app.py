@@ -27,9 +27,8 @@ PRODUCTOS = {
     "Pastel Moka Almendra Grande": "LÍNEA G"
 }
 
-# --- FUNCIÓN DE CONEXIÓN (Clave para evitar errores en Streamlit Cloud) ---
+# --- FUNCIÓN DE CONEXIÓN ---
 def get_db_connection():
-    # check_same_thread=False es fundamental para evitar el ProgrammingError
     return sqlite3.connect("inventario.db", check_same_thread=False)
 
 # --- SIDEBAR: ADMINISTRACIÓN ---
@@ -45,7 +44,7 @@ with st.sidebar:
                 try:
                     os.remove("inventario.db")
                     st.success("Base de datos eliminada. Reiniciando...")
-                    time.sleep(2) # Pausa para que el usuario lea el mensaje
+                    time.sleep(2)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al borrar: {e}")
@@ -69,7 +68,7 @@ def init_db():
         for prod, linea in PRODUCTOS.items():
             c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, 0, NULL)", (prod, linea))
     conn.commit()
-    conn.close() # Siempre cerrar explícitamente
+    conn.close()
 
 init_db()
 
@@ -156,14 +155,17 @@ with tab1:
     
     col1, col2 = st.columns([2, 1])
     with col1:
+        # Se añade un 'key' para controlar la memoria del widget
         prod_ingreso = st.selectbox(
             "Selecciona el pastel a ingresar:", 
             options=list(PRODUCTOS.keys()),
             index=None,
-            placeholder="Escribe o selecciona un pastel..."
+            placeholder="Escribe o selecciona un pastel...",
+            key="input_producto"
         )
     with col2:
-        cant_ingreso = st.number_input("Cantidad que ingresa:", min_value=1, step=1, value=1)
+        # Se añade un 'key' al número
+        cant_ingreso = st.number_input("Cantidad que ingresa:", min_value=1, step=1, value=1, key="input_cantidad")
     
     if prod_ingreso:
         st.write(f"📅 **Asigna la caducidad para las {cant_ingreso} unidades:**")
@@ -179,9 +181,15 @@ with tab1:
         if st.button("➕ Añadir al Inventario", type="primary"):
             procesar_ingreso(prod_ingreso, PRODUCTOS[prod_ingreso], fechas_asignadas)
             
-            # Se muestra el mensaje, se pausa 2 segundos y se recarga
+            # Limpiamos los campos borrando sus 'keys' de la memoria
+            del st.session_state["input_producto"]
+            del st.session_state["input_cantidad"]
+            for i in range(cant_ingreso):
+                if f"date_{i}" in st.session_state:
+                    del st.session_state[f"date_{i}"]
+            
             st.success(f"¡Éxito! Se agregaron {cant_ingreso} unidades de {prod_ingreso}.")
-            time.sleep(2.5) 
+            time.sleep(2) 
             st.rerun()
     else:
         st.info("👆 Selecciona un pastel para habilitar el registro de fechas.")
@@ -226,15 +234,18 @@ with tab2:
             "Selecciona el pastel a descontar del inventario:", 
             options=disponibles,
             index=None,
-            placeholder="Escribe el nombre del pastel..."
+            placeholder="Escribe el nombre del pastel...",
+            key="venta_producto"
         )
         
         if producto_a_vender:
             if st.button("Registrar Venta", type="primary"):
                 if registrar_venta(producto_a_vender):
-                    # Se muestra el mensaje, se pausa 2 segundos y se recarga
+                    # Limpiamos el campo de venta
+                    del st.session_state["venta_producto"]
+                    
                     st.success(f"Venta registrada. Se descontó 1 unidad de {producto_a_vender}.")
-                    time.sleep(2.5)
+                    time.sleep(2)
                     st.rerun() 
         else:
             st.button("Registrar Venta", type="primary", disabled=True)
