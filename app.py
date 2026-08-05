@@ -28,7 +28,7 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM inventario")
     if c.fetchone()[0] == 0:
         productos_default = [
-            ("Pastel Carlos y Fichico", "LÍNEA C"),
+            ("Pastel Carlos y Chico", "LÍNEA C"),
             ("Pastel Chocofierro Chico", "LÍNEA C"),
             ("Pastel Fresas c/Crema Chico", "LÍNEA C"),
             ("Pastel Macadamia Chico", "LÍNEA C"),
