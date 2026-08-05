@@ -50,7 +50,7 @@ def init_db():
     if c.fetchone()[0] == 0:
         productos_default = [
             ("Pastel Carlos V Chico", "LÍNEA C"),
-            ("Pastel Chocofierro Chico", "LÍNEA C"),
+            ("Pastel Chocoferrero Chico", "LÍNEA C"),
             ("Pastel Fresas c/Crema Chico", "LÍNEA C"),
             ("Pastel Macadamia Chico", "LÍNEA C"),
             ("Pastel Milkyway Chico", "LÍNEA C"),
@@ -59,7 +59,7 @@ def init_db():
             ("Pastel Zanahoria Chico", "LÍNEA C"),
             ("Pastel Cheesecake Chico", "LÍNEA C"),
             ("Pastel Carlos V Grande", "LÍNEA G"),
-            ("Pastel Chocofichero Grande", "LÍNEA G"),
+            ("Pastel Chocoferrero Grande", "LÍNEA G"),
             ("Pastel Fresas c/Crema Grande", "LÍNEA G"),
             ("Pastel Macadamia Grande", "LÍNEA G"),
             ("Pastel Milkyway Grande", "LÍNEA G"),
