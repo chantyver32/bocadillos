@@ -4,10 +4,10 @@ import pandas as pd
 import os
 from datetime import date, timedelta
 
+# Configuración inicial de la página
 st.set_page_config(page_title="Proyectado Champlitte", layout="wide")
 
 # --- MOSTRAR MENSAJE DE ÉXITO PENDIENTE ---
-# Esto atrapa los mensajes que guardamos antes de un st.rerun()
 if "mensaje_exito" in st.session_state:
     st.success(st.session_state["mensaje_exito"])
     del st.session_state["mensaje_exito"]
@@ -43,7 +43,6 @@ with st.sidebar:
             if os.path.exists("inventario.db"):
                 try:
                     os.remove("inventario.db")
-                    # Guardar mensaje antes de recargar
                     st.session_state["mensaje_exito"] = "Base de datos eliminada. Reiniciando..."
                     st.rerun()
                 except Exception as e:
@@ -53,107 +52,89 @@ with st.sidebar:
 
 # --- 1. INICIALIZACIÓN Y CONEXIÓN A LA BASE DE DATOS ---
 def init_db():
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS inventario (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT,
-                    linea TEXT,
-                    cantidad INTEGER DEFAULT 0,
-                    caducidad DATE
-                )''')
-    
-    # Pre-cargar el catálogo visible en 0 solo la primera vez
-    c.execute("SELECT COUNT(*) FROM inventario")
-    if c.fetchone()[0] == 0:
-        for prod, linea in PRODUCTOS.items():
-            c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, 0, NULL)", (prod, linea))
-            
-    conn.commit()
-    conn.close()
+    with sqlite3.connect("inventario.db") as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS inventario (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        producto TEXT,
+                        linea TEXT,
+                        cantidad INTEGER DEFAULT 0,
+                        caducidad DATE
+                    )''')
+        
+        c.execute("SELECT COUNT(*) FROM inventario")
+        if c.fetchone()[0] == 0:
+            for prod, linea in PRODUCTOS.items():
+                c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, 0, NULL)", (prod, linea))
+        conn.commit()
 
 init_db()
 
 # --- 2. FUNCIONES DE LECTURA Y ESCRITURA ---
 def load_data():
-    conn = sqlite3.connect("inventario.db")
-    df = pd.read_sql_query("SELECT * FROM inventario", conn)
-    conn.close()
+    with sqlite3.connect("inventario.db") as conn:
+        df = pd.read_sql_query("SELECT * FROM inventario", conn)
     return df
 
 def procesar_ingreso(producto, linea, fechas_lista):
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    
-    for d in fechas_lista:
-        fecha_str = d.strftime("%Y-%m-%d")
-        # Verificar si ya existe ese lote exacto (mismo pastel, misma fecha)
-        c.execute("SELECT id FROM inventario WHERE producto = ? AND caducidad = ?", (producto, fecha_str))
-        row = c.fetchone()
-        
-        if row:
-            # Si existe, solo le sumamos 1 a la cantidad de ese lote
-            c.execute("UPDATE inventario SET cantidad = cantidad + 1 WHERE id = ?", (row[0],))
-        else:
-            # Si es una fecha nueva para este pastel, creamos el lote
-            c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, 1, ?)", (producto, linea, fecha_str))
+    with sqlite3.connect("inventario.db") as conn:
+        c = conn.cursor()
+        for d in fechas_lista:
+            fecha_str = d.strftime("%Y-%m-%d")
+            c.execute("SELECT id FROM inventario WHERE producto = ? AND caducidad = ?", (producto, fecha_str))
+            row = c.fetchone()
             
-    conn.commit()
-    conn.close()
+            if row:
+                c.execute("UPDATE inventario SET cantidad = cantidad + 1 WHERE id = ?", (row[0],))
+            else:
+                c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, 1, ?)", (producto, linea, fecha_str))
+        conn.commit()
 
 def registrar_venta(producto):
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    # Sistema PEPS: Descuenta del lote de este pastel que caduca primero
-    c.execute('''
-        SELECT id FROM inventario 
-        WHERE producto = ? AND cantidad > 0 AND caducidad IS NOT NULL
-        ORDER BY caducidad ASC 
-        LIMIT 1
-    ''', (producto,)) 
-    
-    row = c.fetchone()
     exito = False
-    if row:
-        c.execute("UPDATE inventario SET cantidad = cantidad - 1 WHERE id = ?", (row[0],))
-        conn.commit()
-        exito = True
+    with sqlite3.connect("inventario.db") as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT id FROM inventario 
+            WHERE producto = ? AND cantidad > 0 AND caducidad IS NOT NULL
+            ORDER BY caducidad ASC 
+            LIMIT 1
+        ''', (producto,)) 
         
-    conn.close()
+        row = c.fetchone()
+        if row:
+            c.execute("UPDATE inventario SET cantidad = cantidad - 1 WHERE id = ?", (row[0],))
+            conn.commit()
+            exito = True
     return exito
 
 def obtener_recomendaciones():
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    c.execute('''
-        SELECT producto, SUM(cantidad) as cantidad_total, caducidad
-        FROM inventario
-        WHERE cantidad > 0 AND caducidad IS NOT NULL
-          AND caducidad = (
-              SELECT MIN(caducidad) 
-              FROM inventario 
-              WHERE cantidad > 0 AND caducidad IS NOT NULL
-          )
-        GROUP BY producto, caducidad
-        ORDER BY cantidad_total DESC
-    ''')
-    recomendaciones = c.fetchall()
-    conn.close()
+    with sqlite3.connect("inventario.db") as conn:
+        c = conn.cursor()
+        c.execute('''
+            SELECT producto, SUM(cantidad) as cantidad_total, caducidad
+            FROM inventario
+            WHERE cantidad > 0 AND caducidad IS NOT NULL
+              AND caducidad = (
+                  SELECT MIN(caducidad) 
+                  FROM inventario 
+                  WHERE cantidad > 0 AND caducidad IS NOT NULL
+              )
+            GROUP BY producto, caducidad
+            ORDER BY cantidad_total DESC
+        ''')
+        recomendaciones = c.fetchall()
     return recomendaciones
 
 def actualizar_inventario_manual(df_updated):
-    # Función de respaldo por si se corrigen cantidades manualmente en la tabla
-    conn = sqlite3.connect("inventario.db")
-    c = conn.cursor()
-    c.execute("DELETE FROM inventario") 
-    for _, row in df_updated.iterrows():
-        cad_str = str(row["caducidad"]) if pd.notnull(row["caducidad"]) and str(row["caducidad"]) not in ["NaT", "", "None"] else None
-        c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, ?, ?)", 
-                  (row["producto"], row["linea"], row["cantidad"], cad_str))
-    conn.commit()
-    conn.close()
-
+    with sqlite3.connect("inventario.db") as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM inventario") 
+        for _, row in df_updated.iterrows():
+            cad_str = str(row["caducidad"]) if pd.notnull(row["caducidad"]) and str(row["caducidad"]) not in ["NaT", "", "None"] else None
+            c.execute("INSERT INTO inventario (producto, linea, cantidad, caducidad) VALUES (?, ?, ?, ?)", 
+                      (row["producto"], row["linea"], row["cantidad"], cad_str))
+        conn.commit()
 
 # --- 3. INTERFAZ DE STREAMLIT ---
 st.title("Proyectado de Pastelería")
@@ -163,7 +144,6 @@ tab1, tab2 = st.tabs(["⚙️ Ingresos e Inventario", "🛒 Ventas y Recomendaci
 with tab1:
     st.header("Ingreso Rápido de Pasteles")
     
-    # Formulario dinámico
     col1, col2 = st.columns([2, 1])
     with col1:
         prod_ingreso = st.selectbox(
@@ -175,7 +155,6 @@ with tab1:
     with col2:
         cant_ingreso = st.number_input("Cantidad que ingresa:", min_value=1, step=1, value=1)
     
-    # Solo mostrar los calendarios si ya se seleccionó un pastel
     if prod_ingreso:
         st.write(f"📅 **Asigna la caducidad para las {cant_ingreso} unidades:**")
         
@@ -189,8 +168,6 @@ with tab1:
                 
         if st.button("➕ Añadir al Inventario", type="primary"):
             procesar_ingreso(prod_ingreso, PRODUCTOS[prod_ingreso], fechas_asignadas)
-            
-            # Guardamos el mensaje en la sesión ANTES de recargar
             st.session_state["mensaje_exito"] = f"Se agregaron correctamente {cant_ingreso} unidades de {prod_ingreso}."
             st.rerun()
     else:
@@ -223,7 +200,6 @@ with tab1:
         actualizar_inventario_manual(edited_inv)
         st.success("¡Tabla actualizada correctamente!")
 
-
 with tab2:
     st.header("Punto de Venta")
     
@@ -241,7 +217,6 @@ with tab2:
         if producto_a_vender:
             if st.button("Registrar Venta", type="primary"):
                 if registrar_venta(producto_a_vender):
-                    # Guardar mensaje antes de recargar
                     st.session_state["mensaje_exito"] = f"Venta registrada. Se descontó 1 unidad de {producto_a_vender}."
                     st.rerun() 
         else:
@@ -263,4 +238,4 @@ with tab2:
             st.info(f"**{pastel}**\n\n📦 *Total en stock: {cant} unidades*  |  ⏳ *Fecha límite:* **{caducidad}**")
     else:
         st.info("Sin datos suficientes para sugerir.")
-    
+        
