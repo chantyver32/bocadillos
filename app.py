@@ -1,110 +1,77 @@
+import sqlite3
+import pandas as pd
 import streamlit as st
-import barcode
-from barcode.writer import ImageWriter
-from io import BytesIO
-from docx import Document
-from docx.shared import Inches
 
-st.set_page_config(page_title="Generador de Códigos Masivo", page_icon="🏷️")
+# 1. Función para crear la base de datos y la tabla si no existen
+def inicializar_bd():
+    # Se conecta al archivo pasteleria.db (lo crea si no existe)
+    conexion = sqlite3.connect('pasteleria.db')
+    cursor = conexion.cursor()
+    
+    # Crea la estructura de la tabla
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS inventario (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            producto TEXT NOT NULL,
+            cantidad INTEGER NOT NULL,
+            precio REAL NOT NULL
+        )
+    ''')
+    conexion.commit()
+    conexion.close()
 
-st.title("🏷️ Generador de Códigos de Barras en Lote")
-st.write("Ingresa los datos línea por línea usando el formato: **Nombre del producto, Código**")
+# 2. Función para insertar los datos desde la interfaz
+def guardar_producto(producto, cantidad, precio):
+    conexion = sqlite3.connect('pasteleria.db')
+    cursor = conexion.cursor()
+    cursor.execute('''
+        INSERT INTO inventario (producto, cantidad, precio) 
+        VALUES (?, ?, ?)
+    ''', (producto, cantidad, precio))
+    conexion.commit()
+    conexion.close()
 
-# Entrada principal: Área de texto múltiple
-texto_multilinea = st.text_area(
-    "Datos de los códigos:", 
-    placeholder="Pastel de Chocolate Champlitte, 3000100090013\nGalletas de Mantequilla, 3000100090014\nPan de Muerto, 3000100090015",
-    height=200
-)
+# 3. Función para extraer los datos y mostrarlos
+def obtener_datos():
+    conexion = sqlite3.connect('pasteleria.db')
+    # Usamos pandas para transformar la consulta SQL directamente en un DataFrame
+    df = pd.read_sql('SELECT * FROM inventario', conexion)
+    conexion.close()
+    return df
 
-# Opciones de formato
-st.markdown("### Opciones de Formato")
-col1, col2 = st.columns(2)
-with col1:
-    quitar_ceros = st.checkbox("Eliminar ceros iniciales innecesarios", value=True)
-with col2:
-    validar_16 = st.checkbox("Validar longitud de 16 dígitos", value=False)
+# --- INTERFAZ GRÁFICA CON STREAMLIT ---
 
-if st.button("Generar Documento Word", type="primary"):
-    if texto_multilinea.strip():
-        try:
-            # Inicializar documento Word
-            doc = Document()
-            doc.add_heading('Etiquetas de Códigos de Barras', 0)
-            
-            # Crear tabla con 2 columnas para organizar los códigos
-            table = doc.add_table(rows=0, cols=2)
-            table.style = 'Table Grid'
-            
-            # Procesar las líneas de texto
-            lineas = texto_multilinea.strip().split('\n')
-            
-            TIPO_CODIGO = barcode.get_barcode_class('code128')
-            opciones_imagen = {
-                'module_width': 0.3, 
-                'module_height': 8.0, 
-                'font_size': 10,
-                'text_distance': 4.0,
-            }
-            
-            row_cells = None
-            
-            for idx, linea in enumerate(lineas):
-                # Validar que la línea tenga el formato correcto con la coma
-                if ',' not in linea:
-                    st.warning(f"La línea '{linea}' no tiene el formato correcto (Falta la coma). Se omitirá.")
-                    continue
-                    
-                nombre_producto, codigo_texto = linea.split(',', 1)
-                nombre_producto = nombre_producto.strip()
-                codigo_texto = codigo_texto.strip()
-                
-                # Limpieza y validación
-                if quitar_ceros:
-                    codigo_texto = codigo_texto.lstrip('0')
-                    if not codigo_texto:
-                        codigo_texto = "0"
-                
-                if validar_16 and len(codigo_texto) != 16:
-                    st.warning(f"⚠️ Atención: El código '{codigo_texto}' tiene {len(codigo_texto)} caracteres en lugar de 16.")
-                
-                # Generar imagen del código de barras en memoria
-                buffer_img = BytesIO()
-                codigo_generado = TIPO_CODIGO(codigo_texto, writer=ImageWriter())
-                codigo_generado.write(buffer_img, options=opciones_imagen)
-                buffer_img.seek(0) # Regresar el puntero al inicio del archivo en memoria
-                
-                # Acomodar en la tabla (alternar entre columna 0 y 1)
-                if idx % 2 == 0:
-                    row_cells = table.add_row().cells
-                    col_idx = 0
-                else:
-                    col_idx = 1
-                    
-                # Insertar texto e imagen en la celda correspondiente
-                cell = row_cells[col_idx]
-                parrafo = cell.paragraphs[0]
-                parrafo.add_run(f"{nombre_producto}\n").bold = True
-                run_img = parrafo.add_run()
-                run_img.add_picture(buffer_img, width=Inches(2.5)) # Ajustar el ancho de la imagen
-            
-            # Guardar el documento de Word en memoria
-            doc_buffer = BytesIO()
-            doc.save(doc_buffer)
-            doc_buffer.seek(0)
-            
-            st.success("¡Documento Word generado con éxito!")
-            
-            # Botón para descargar el Word
-            st.download_button(
-                label="⬇️ Descargar Documento con Etiquetas",
-                data=doc_buffer,
-                file_name="etiquetas_codigos.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-            
-        except Exception as e:
-            st.error(f"Ocurrió un error al generar el documento: {e}")
-    else:
-        st.error("Por favor, ingresa al menos un producto para generar el documento.")
-        
+st.title("Control de Inventario")
+
+# Ejecutamos la inicialización de la base de datos
+inicializar_bd()
+
+# Creamos un formulario para que los datos se envíen juntos al hacer clic
+with st.form("formulario_ingreso"):
+    st.subheader("Registrar nuevo ingreso")
+    
+    nombre_prod = st.text_input("Nombre del producto (ej. Harina, Pastel de chocolate)")
+    cantidad_prod = st.number_input("Cantidad", min_value=1, step=1)
+    precio_prod = st.number_input("Precio ($)", min_value=0.0, step=0.5)
+    
+    # Botón de envío
+    enviado = st.form_submit_button("Guardar en Base de Datos")
+    
+    if enviado:
+        if nombre_prod != "":
+            guardar_producto(nombre_prod, cantidad_prod, precio_prod)
+            st.success(f"¡'{nombre_prod}' se guardó correctamente!")
+        else:
+            st.error("Por favor, ingresa el nombre del producto.")
+
+# Mostrar los datos guardados en tiempo real
+st.divider()
+st.subheader("Registros actuales en SQLite")
+
+# Cargamos el DataFrame
+df_inventario = obtener_datos()
+
+if not df_inventario.empty:
+    st.dataframe(df_inventario, use_container_width=True, hide_index=True)
+else:
+    st.info("La base de datos está vacía. Registra tu primer producto.")
