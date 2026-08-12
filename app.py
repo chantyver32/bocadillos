@@ -121,7 +121,8 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     font_logo2 = get_font(["DejaVuSans.ttf", "arial.ttf", "Helvetica.ttf"], 14)
 
     draw.text((width//2, 35), "BOCADILLOS", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, 80), f"🗓️ ACTUALIZADO AL {fecha_actualizacion}", fill=TEXT_DARK, font=font_sub, anchor="mm")
+    # ✅ Se eliminó el emoji de calendario de la línea de actualización
+    draw.text((width//2, 80), f"ACTUALIZADO AL {fecha_actualizacion}", fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     draw.text((width - 30, 40), "Champlitte", fill=WINE, font=font_logo1, anchor="rm")
     draw.text((width - 30, 70), "Pastelería", fill=WINE_LIGHT, font=font_logo2, anchor="rm")
@@ -170,7 +171,8 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
 
         fecha_texto = item.get("fecha", "")
         if fecha_texto and fecha_texto != "-":
-            draw.text((col_fecha, y + (row_height//2)), f"🗓️ {fecha_texto}", fill=TEXT_DARK, font=font_td, anchor="mm")
+            # ✅ Se eliminó el emoji de calendario de la columna de fecha
+            draw.text((col_fecha, y + (row_height//2)), fecha_texto, fill=TEXT_DARK, font=font_td, anchor="mm")
         else:
             draw.text((col_fecha, y + (row_height//2)), "-", fill=TEXT_DARK, font=font_td, anchor="mm")
 
