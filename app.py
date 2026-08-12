@@ -14,6 +14,7 @@ st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="cent
 
 DB_NAME = "inventario_bocadillos.db"
 
+# ✅ Hojaldra Jamón ahora es categoría "Mixta"
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
     "Tutis": {"categoria": "Dulce", "piezas_x_paq": 27},
@@ -86,7 +87,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES Y DIBUJO DE IMAGEN
 # ==========================================
 def calcular_stock_actual():
     conn = sqlite3.connect(DB_NAME)
@@ -113,17 +114,6 @@ def calcular_stock_actual():
     conn.close()
     return stock
 
-def insertar_logo(img, width):
-    try:
-        logo = Image.open("1786574841279.jpg")
-        ancho_logo = 300
-        alto_logo = int((ancho_logo / logo.width) * logo.height)
-        logo = logo.resize((ancho_logo, alto_logo))
-        x_logo = (width - ancho_logo) // 2
-        img.paste(logo, (x_logo, 20))
-    except Exception:
-        pass
-
 def get_font(names, size):
     for name in names:
         try:
@@ -132,9 +122,18 @@ def get_font(names, size):
             continue
     return ImageFont.load_default()
 
+def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro):
+    # Fuentes para simular el logo
+    font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], 75)
+    font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
+    
+    # Dibujar textos centrados en la parte superior
+    draw.text((width//2, 60), "Champlitte", fill=color_vino, font=font_champlitte, anchor="mm")
+    draw.text((width//2, 110), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
+
 def generar_plantilla_bocadillos(datos, fecha_str):
     width = 900
-    espacio_logo = 220
+    espacio_logo = 160 # Espacio reservado para el texto del logo
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -156,7 +155,8 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 15)
     font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 11)
 
-    insertar_logo(img, width)
+    # ✅ Dibuja el texto del logo en lugar de una imagen
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
     draw.text((width//2, y + 35), "BOCADILLOS", fill=WINE, font=font_title, anchor="mm")
@@ -204,7 +204,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
 
 def generar_plantilla_cocacola(datos, fecha_str):
     width = 900
-    espacio_logo = 220
+    espacio_logo = 160 # Espacio reservado para el texto del logo
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -224,7 +224,8 @@ def generar_plantilla_cocacola(datos, fecha_str):
     font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
 
-    insertar_logo(img, width)
+    # ✅ Dibuja el texto del logo en lugar de una imagen
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
     draw.text((width//2, y + 35), "COCA-COLA", fill=WINE, font=font_title, anchor="mm")
@@ -476,4 +477,169 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
 
 # ==========================================
 # INTERFAZ STREAMLIT PRINCIPAL
-# ===================
+# ==========================================
+st.title("📦 Control de Stock y Horneado")
+tab1, tab2, tab3 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola"])
+
+# ------------------------------------------
+# PESTAÑA 1: RECEPCIÓN
+# ------------------------------------------
+with tab1:
+    st.header("Registrar Nueva Mercancía")
+    tipo_entrada = st.radio("Método:", ["✍️ Manual", "🗣️ Voz"], horizontal=True)
+    if tipo_entrada == "🗣️ Voz":
+        st.info("💡 Dicta: 'Llegaron cinco piezas de Volován de Jamón'")
+        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar", stop_prompt="🔴 Grabando...", just_once=True, key='stt_entrada')
+        if texto_entrada:
+            st.session_state.dictado_entrada = texto_entrada
+            st.rerun()
+
+    if "dictado_entrada" in st.session_state:
+        dialog_procesar_voz_entrada()
+
+    idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_ent_prod"]) if "auto_ent_prod" in st.session_state and st.session_state["auto_ent_prod"] in EMPAQUES else None
+    cant_default_paq = st.session_state.get("auto_ent_paq", None)
+    cant_default_pz = st.session_state.get("auto_ent_pz", None)
+
+    with st.form("form_entrada", clear_on_submit=True):
+        prod_sel = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_default, placeholder="Elija...")
+        col_p, col_z = st.columns(2)
+        with col_p:
+            cant_paq = st.number_input("Paquetes", min_value=0, step=1, value=cant_default_paq, placeholder="0")
+        with col_z:
+            cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, placeholder="0")
+            
+        if st.form_submit_button("Revisar y Registrar"):
+            val_paq = cant_paq if cant_paq is not None else 0
+            val_pz = cant_piezas if cant_piezas is not None else 0
+            if prod_sel and (val_paq > 0 or val_pz > 0):
+                pz_totales = (val_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + val_pz
+                dialog_confirmar_entrada(prod_sel, val_paq, pz_totales)
+            else:
+                st.error("Registra al menos 1 paquete o pieza.")
+
+# ------------------------------------------
+# PESTAÑA 2: HORNEADO
+# ------------------------------------------
+with tab2:
+    st.header("Horneado de Mercancía")
+    tipo_horneado = st.radio("Método de captura:", ["✍️ Manual", "🗣️ Voz"], horizontal=True, key="r_horn")
+    if tipo_horneado == "🗣️ Voz":
+        st.info("💡 Dicta: 'Hornear tres paquetes de Volován de Pierna'")
+        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar", stop_prompt="🔴 Grabando...", just_once=True, key='stt_horneado')
+        if texto_horneado:
+            st.session_state.dictado_horneado = texto_horneado
+            st.rerun()
+
+    if "dictado_horneado" in st.session_state:
+        dialog_procesar_voz_horneado()
+        
+    idx_default_h = list(EMPAQUES.keys()).index(st.session_state["auto_horn_prod"]) if "auto_horn_prod" in st.session_state and st.session_state["auto_horn_prod"] in EMPAQUES else None
+    cant_default_paq_h = st.session_state.get("auto_horn_paq", None)
+    cant_default_pz_h = st.session_state.get("auto_horn_pz", None)
+
+    with st.form("form_horneado", clear_on_submit=True):
+        prod_hornear = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_default_h, placeholder="Elija...")
+        col_hp, col_hz = st.columns(2)
+        with col_hp:
+            cant_hornear_paq = st.number_input("Paquetes", min_value=0, step=1, value=cant_default_paq_h, placeholder="0")
+        with col_hz:
+            cant_hornear_pz = st.number_input("Piezas", min_value=0, step=1, value=cant_default_pz_h, placeholder="0")
+        
+        if st.form_submit_button("Revisar y Hornear"):
+            val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
+            val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
+            if prod_hornear and (val_paq_h > 0 or val_pz_h > 0):
+                pz_a_hornear = (val_paq_h * EMPAQUES[prod_hornear]["piezas_x_paq"]) + val_pz_h
+                stock_actual = calcular_stock_actual()
+                disp_pz = stock_actual[prod_hornear]["piezas_totales"]
+                if pz_a_hornear > disp_pz:
+                    st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} pz.")
+                else:
+                    dialog_confirmar_horneado(prod_hornear, val_paq_h, pz_a_hornear)
+            else:
+                st.error("Completa cantidad.")
+
+    st.markdown("---")
+    st.subheader("🖼️ Reporte Visual de Stock")
+    stock_actual = calcular_stock_actual()
+    datos_plantilla = []
+    
+    fecha_mex = get_hora_mexico().strftime('%d %m %Y - %H:%M')
+    lineas_wa = []
+    
+    for prod, datos in stock_actual.items():
+        if datos['piezas_totales'] > 0:
+            cant_texto = f"{datos['paquetes']} pq"
+            if datos['piezas_sueltas'] > 0:
+                cant_texto += f" + {datos['piezas_sueltas']} pz"
+            
+            suma_en_piezas = datos['piezas_totales'] 
+            datos_plantilla.append({
+                "producto": prod,
+                "linea": EMPAQUES[prod]["categoria"],
+                "cantidad": cant_texto,
+                "totales": suma_en_piezas
+            })
+            lineas_wa.append(f"📦 {prod}: {cant_texto} (Total: {suma_en_piezas} pz)")
+            
+    if not datos_plantilla:
+        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0})
+        lineas_wa.append("No hay inventario.")
+        
+    path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_mex)
+    st.image(path_img, caption="Reporte generado automáticamente", use_container_width=True)
+    
+    if seleccion_wa:
+        txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa)
+        url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa)}"
+        st.markdown(f"[📲 **Enviar reporte WhatsApp a {seleccion_wa}**]({url_wa})", unsafe_allow_html=True)
+    else:
+        st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
+
+# ------------------------------------------
+# PESTAÑA 3: COCA-COLA
+# ------------------------------------------
+with tab3:
+    st.header("Inventario de Coca-Cola")
+    opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
+    
+    with st.form("form_coca", clear_on_submit=True):
+        prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar...")
+        cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
+        if st.form_submit_button("Revisar y Registrar"):
+            if prod_coca and cant_coca:
+                dialog_confirmar_coca(prod_coca, cant_coca)
+            else:
+                st.error("Completa todos los campos.")
+
+    st.markdown("---")
+    st.subheader("🖼️ Reporte Visual de Coca-Cola")
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT producto, SUM(cantidad) FROM cocacola GROUP BY producto")
+    stock_coca = c.fetchall()
+    conn.close()
+    
+    datos_coca = []
+    lineas_wa_coca = []
+    fecha_mex_coca = get_hora_mexico().strftime('%d %m %Y - %H:%M')
+
+    if stock_coca:
+        for prod, total in stock_coca:
+            datos_coca.append({"producto": prod, "cantidad": total})
+            lineas_wa_coca.append(f"🥤 {prod}: {total} piezas")
+    else:
+        datos_coca.append({"producto": "Sin inventario", "cantidad": 0})
+        lineas_wa_coca.append("No hay inventario de refrescos.")
+
+    path_coca = generar_plantilla_cocacola(datos_coca, fecha_mex_coca)
+    st.image(path_coca, caption="Reporte de Refrescos", use_container_width=True)
+
+    if seleccion_wa:
+        txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):\n" + "\n".join(lineas_wa_coca)
+        url_wa_coca = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_coca)}"
+        st.markdown(f"[📲 **Enviar reporte Coca-Cola a {seleccion_wa}**]({url_wa_coca})", unsafe_allow_html=True)
+    else:
+        st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
