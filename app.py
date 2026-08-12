@@ -125,11 +125,14 @@ def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro):
     font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], 75)
     font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
     draw.text((width//2, 60), "Champlitte", fill=color_vino, font=font_champlitte, anchor="mm")
-    draw.text((width//2, 110), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
+    
+    # ✅ Se bajó la palabra PASTELERÍA de 110 a 130 para dar el espacio ligero solicitado
+    draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
 def generar_plantilla_bocadillos(datos, fecha_str):
     width = 900
-    espacio_logo = 160 
+    # ✅ Se ajustó el espacio general del logo para compensar la bajada del texto
+    espacio_logo = 175 
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -199,7 +202,8 @@ def generar_plantilla_bocadillos(datos, fecha_str):
 
 def generar_plantilla_cocacola(datos, fecha_str):
     width = 900
-    espacio_logo = 160
+    # ✅ Espaciado para el logo replicado en la plantilla de Coca Cola
+    espacio_logo = 175
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -439,8 +443,10 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 
 st.sidebar.divider()
 
+# ✅ Número de Urano actualizado al correcto
 opciones_wa = {
-    "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
+    "URANO": "522291653665", 
+    "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
     "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
     "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
     "CUAUHTÉMOC": "522291651340", "MARIO MOLINA": "522291780851", "RAFAEL CUERVO": "522291980229",
@@ -452,7 +458,11 @@ opciones_wa = {
     "EMILIANO ZAPATA": "522969628525"
 }
 
-seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", list(opciones_wa.keys()), index=None, placeholder="Elige sucursal...")
+lista_tiendas = list(opciones_wa.keys())
+# ✅ Urano seleccionado por defecto (index 0)
+idx_urano = lista_tiendas.index("URANO") if "URANO" in lista_tiendas else 0
+seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_urano, placeholder="Elige sucursal...")
+
 numero_whatsapp = opciones_wa[seleccion_wa] if seleccion_wa else ""
 if seleccion_wa:
     st.sidebar.caption(f"📱 WhatsApp asociado: **{numero_whatsapp}**")
@@ -489,7 +499,6 @@ with tab1:
     if tipo_entrada == "🗣️ Voz":
         st.info("💡 Dicta: 'Llegaron cinco piezas de Volován de Jamón'")
         
-        # ✅ AQUÍ REGRESAMOS use_container_width=True AL MICRÓFONO
         texto_entrada = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Dictar", 
@@ -517,7 +526,6 @@ with tab1:
         with col_z:
             cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, placeholder="0")
             
-        # ✅ BOTÓN DE ENVIAR ANCHO
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             val_paq = cant_paq if cant_paq is not None else 0
             val_pz = cant_piezas if cant_piezas is not None else 0
@@ -536,7 +544,6 @@ with tab2:
     if tipo_horneado == "🗣️ Voz":
         st.info("💡 Dicta: 'Hornear tres paquetes de Volován de Pierna'")
         
-        # ✅ AQUÍ REGRESAMOS use_container_width=True AL MICRÓFONO
         texto_horneado = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Dictar", 
@@ -564,7 +571,6 @@ with tab2:
         with col_hz:
             cant_hornear_pz = st.number_input("Piezas", min_value=0, step=1, value=cant_default_pz_h, placeholder="0")
         
-        # ✅ BOTÓN DE ENVIAR ANCHO
         if st.form_submit_button("Revisar y Hornear", use_container_width=True):
             val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
             val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
@@ -628,7 +634,6 @@ with tab3:
         cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
         caducidad_coca = st.date_input("Fecha de Caducidad", value=None)
         
-        # ✅ BOTÓN DE ENVIAR ANCHO
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_coca and cant_coca and caducidad_coca:
                 dialog_confirmar_coca(prod_coca, cant_coca, caducidad_coca)
