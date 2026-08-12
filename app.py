@@ -158,11 +158,11 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     col_cant = 680
     col_totales = 820
 
-    # ✅ Estructura de tabla modificada (reemplazo de "FECHA" por "TOTALES")
+    # ✅ Estructura de tabla modificada
     draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
     draw.text((col_linea, y + 22), "CATEGORÍA", fill=WHITE, font=font_th, anchor="mm")
     draw.text((col_cant, y + 22), "PAQUETE + PIEZAS", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_totales, y + 22), "TOTALES", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_totales, y + 22), "TOTAL (PIEZAS)", fill=WHITE, font=font_th, anchor="mm")
 
     y += table_header_height
 
@@ -189,9 +189,9 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
 
         draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
-        # ✅ Mostrar "Totales"
+        # ✅ Mostrar "Totales" en Piezas
         totales_valor = str(item.get("totales", "0"))
-        draw.text((col_totales, y + (row_height//2)), totales_valor, fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((col_totales, y + (row_height//2)), totales_valor, fill=WINE, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -466,159 +466,4 @@ tab1, tab2, tab3 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola"])
 with tab1:
     st.header("Registrar Nueva Mercancía")
     
-    tipo_entrada = st.radio("Selecciona el método de captura:", ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], horizontal=True, key="radio_ent")
-    
-    if tipo_entrada == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco piezas de Volován de Jamón')")
-        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_entrada')
-        if texto_entrada:
-            st.session_state.dictado_entrada = texto_entrada
-            st.rerun()
-
-    if "dictado_entrada" in st.session_state:
-        dialog_procesar_voz_entrada()
-
-    idx_default = None
-    if "auto_ent_prod" in st.session_state and st.session_state["auto_ent_prod"] in EMPAQUES:
-        idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_ent_prod"])
-        
-    cant_default_paq = st.session_state.get("auto_ent_paq", None)
-    cant_default_pz = st.session_state.get("auto_ent_pz", None)
-
-    with st.form("form_entrada", clear_on_submit=True):
-        # ✅ Campos vacíos por defecto
-        prod_sel = st.selectbox("Selecciona Producto", list(EMPAQUES.keys()), index=idx_default, placeholder="Elija un producto...", key="prod_sel")
-        
-        col_p, col_z = st.columns(2)
-        with col_p:
-            cant_paq = st.number_input("Paquetes", min_value=0, step=1, value=cant_default_paq, key="cant_paq", placeholder="0")
-        with col_z:
-            cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, key="cant_piezas", placeholder="0")
-            
-        btn_guardar = st.form_submit_button("Revisar y Registrar")
-        
-        if btn_guardar:
-            val_paq = cant_paq if cant_paq is not None else 0
-            val_pz = cant_piezas if cant_piezas is not None else 0
-            
-            if prod_sel and (val_paq > 0 or val_pz > 0):
-                pz_totales = (val_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + val_pz
-                dialog_confirmar_entrada(prod_sel, val_paq, pz_totales)
-            else:
-                st.error("Completa los campos y asegúrate de registrar al menos 1 paquete o pieza.")
-
-# ------------------------------------------
-# PESTAÑA 2: REGISTRO DE HORNEADO
-# ------------------------------------------
-with tab2:
-    st.header("Horneado de Mercancía")
-
-    tipo_horneado = st.radio("Selecciona el método de captura:", ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], horizontal=True, key="radio_horn")
-    
-    if tipo_horneado == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Hornear tres paquetes de Volován de Pierna')")
-        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_horneado')
-        if texto_horneado:
-            st.session_state.dictado_horneado = texto_horneado
-            st.rerun()
-
-    if "dictado_horneado" in st.session_state:
-        dialog_procesar_voz_horneado()
-        
-    idx_default_h = None
-    if "auto_horn_prod" in st.session_state and st.session_state["auto_horn_prod"] in EMPAQUES:
-        idx_default_h = list(EMPAQUES.keys()).index(st.session_state["auto_horn_prod"])
-        
-    cant_default_paq_h = st.session_state.get("auto_horn_paq", None)
-    cant_default_pz_h = st.session_state.get("auto_horn_pz", None)
-
-    with st.form("form_horneado", clear_on_submit=True):
-        # ✅ Campos vacíos por defecto
-        prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=idx_default_h, placeholder="Elija un producto...", key="hornear_prod")
-        
-        col_hp, col_hz = st.columns(2)
-        with col_hp:
-            cant_hornear_paq = st.number_input("Paquetes a Hornear", min_value=0, step=1, value=cant_default_paq_h, key="hornear_cant_paq", placeholder="0")
-        with col_hz:
-            cant_hornear_pz = st.number_input("Piezas a Hornear", min_value=0, step=1, value=cant_default_pz_h, key="hornear_cant_pz", placeholder="0")
-        
-        btn_horneo = st.form_submit_button("Revisar y Hornear")
-        
-        if btn_horneo:
-            val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
-            val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
-            
-            if prod_hornear and (val_paq_h > 0 or val_pz_h > 0):
-                pz_a_hornear = (val_paq_h * EMPAQUES[prod_hornear]["piezas_x_paq"]) + val_pz_h
-                
-                stock_actual = calcular_stock_actual()
-                disp_pz = stock_actual[prod_hornear]["piezas_totales"]
-                
-                if pz_a_hornear > disp_pz:
-                    st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} piezas disponibles en nevera para este producto.")
-                else:
-                    dialog_confirmar_horneado(prod_hornear, val_paq_h, pz_a_hornear)
-            else:
-                st.error("Por favor completa los campos seleccionando un producto y una cantidad.")
-
-    st.markdown("---")
-    st.subheader("🖼️ Reporte Visual de Stock")
-    
-    stock_actual = calcular_stock_actual()
-    datos_plantilla = []
-    fecha_hoy = datetime.now().strftime('%Y-%m-%d %H:%M')
-    lineas_whatsapp = []
-    
-    for prod, datos in stock_actual.items():
-        if datos['piezas_totales'] > 0:
-            cant_texto = f"{datos['paquetes']} paq"
-            if datos['piezas_sueltas'] > 0:
-                cant_texto += f" + {datos['piezas_sueltas']} pz"
-            
-            # ✅ Calcular totales explícitamente: paquetes + piezas sueltas
-            suma_totales = datos['paquetes'] + datos['piezas_sueltas']
-                
-            datos_plantilla.append({
-                "producto": prod,
-                "linea": EMPAQUES[prod]["categoria"],
-                "cantidad": cant_texto,
-                "totales": suma_totales
-            })
-            lineas_whatsapp.append(f"📦 {prod}: {cant_texto} (Total: {suma_totales})")
-            
-    if not datos_plantilla:
-        datos_plantilla.append({"producto": "Sin inventario disponible", "linea": "-", "cantidad": "0", "totales": 0})
-        lineas_whatsapp.append("No hay inventario disponible.")
-        
-    path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_hoy)
-    
-    st.image(path_img, caption="Plantilla Oficial generada automáticamente", use_container_width=True)
-    
-    # ✅ Lógica de WhatsApp ligada al SelectBox del Sidebar
-    if seleccion_wa:
-        texto_whatsapp = f"Stock en Nevera ({seleccion_wa} - {fecha_hoy}):\n" + "\n".join(lineas_whatsapp)
-        url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto_whatsapp)}"
-        st.success(f"📱 Sucursal seleccionada: **{seleccion_wa}**")
-        st.markdown(f"[📲 **Enviar reporte por WhatsApp a {seleccion_wa}**]({url_wa})", unsafe_allow_html=True)
-    else:
-        st.info("ℹ️ Para enviar el reporte por WhatsApp, **selecciona primero una sucursal** en el menú lateral.")
-
-# ------------------------------------------
-# PESTAÑA 3: COCA-COLA
-# ------------------------------------------
-with tab3:
-    st.header("Caducidades de Coca-Cola")
-    opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
-    
-    with st.form("form_coca", clear_on_submit=True):
-        # ✅ Campos vacíos por defecto
-        prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar formato...", key="coca_prod")
-        cant_coca = st.number_input("Cantidad de Piezas", min_value=1, step=1, value=None, placeholder="0", key="coca_cant")
-        
-        btn_coca = st.form_submit_button("Revisar y Registrar")
-        
-        if btn_coca:
-            if prod_coca and cant_coca:
-                dialog_confirmar_coca(prod_coca, cant_coca)
-            else:
-                st.error("Por favor completa todos los campos (Formato y Cantidad).")
+    tipo_entrada = st.radio("Selecciona el método de captura:"
