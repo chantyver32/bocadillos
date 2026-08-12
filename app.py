@@ -94,11 +94,14 @@ def calcular_stock_actual():
         
         piezas_disp = entradas_pz - salidas_pz
         pz_x_paq = EMPAQUES[prod]["piezas_x_paq"]
+        
         paq_disp = piezas_disp // pz_x_paq
         pz_sueltas = piezas_disp % pz_x_paq
         
         stock[prod] = {
-            "paquetes": paq_disp, "piezas_sueltas": pz_sueltas, "piezas_totales": piezas_disp
+            "paquetes": paq_disp,
+            "piezas_sueltas": pz_sueltas,
+            "piezas_totales": piezas_disp
         }
     conn.close()
     return stock
@@ -228,14 +231,15 @@ def generar_plantilla_cocacola(datos, fecha_str):
     img.save("reporte_cocacola.png")
     return "reporte_cocacola.png"
 
-# ✅ NUEVO CEREBRO DE VOZ: Permite capturar "X paquetes y Y piezas" en la misma oración
+# ✅ CEREBRO DE VOZ MEJORADO: Entiende "cubilete", y acepta paquetes y piezas al mismo tiempo.
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
     
     prod_encontrado = None
     for prod in EMPAQUES.keys():
         prod_norm = prod.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-        if prod_norm in texto_norm:
+        # Detecta coincidencias exactas o en singular (ej. cubilete -> cubiletes)
+        if prod_norm in texto_norm or (prod_norm.endswith('s') and prod_norm[:-1] in texto_norm):
             prod_encontrado = prod
             break
             
@@ -250,12 +254,12 @@ def procesar_texto_voz(texto):
         texto_norm = re.sub(rf'\b{palabra}\b', str(mapa_numeros[palabra]), texto_norm)
         
     paquetes = 0
-    match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas)', texto_norm)
+    match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
     if match_paq:
         paquetes = int(match_paq.group(1))
         
     piezas = 0
-    match_pz = re.search(r'(\d+)\s*(pieza|piezas|suelta|sueltas)', texto_norm)
+    match_pz = re.search(r'(\d+)\s*(pieza|piezas|suelta|sueltas|pz)', texto_norm)
     if match_pz:
         piezas = int(match_pz.group(1))
         
@@ -277,10 +281,87 @@ def boton_whatsapp_bonito(url, texto):
     st.markdown(html_wa, unsafe_allow_html=True)
 
 # ==========================================
-# POP-UPS DE CONFIRMACIÓN (SOLO PARA MANUAL)
+# POP-UPS DE CONFIRMACIÓN DIRECTA (1 SOLO PASO)
 # ==========================================
+@st.dialog("🎙️ Revisar y Guardar Dictado (Entrada)")
+def dialog_voz_entrada():
+    texto = st.session_state.dictado_entrada
+    st.write(f"**Escuchaste:** *'{texto}'*")
+    
+    prod_enc, paq_enc, pz_enc = procesar_texto_voz(texto)
+    idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
+    
+    prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
+    col1, col2 = st.columns(2)
+    with col1:
+        paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
+    with col2:
+        pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+        
+    # ✅ Guarda directo a la base de datos desde el Pop-up
+    if st.button("✅ Confirmar y Guardar", use_container_width=True):
+        if prod_sel and (paq_sel > 0 or pz_sel > 0):
+            pz_totales = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
+            fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+            conn = sqlite3.connect(DB_NAME)
+            c = conn.cursor()
+            c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
+                      (prod_sel, paq_sel, pz_totales, fecha_ahora, fecha_ahora, fecha_ahora))
+            conn.commit()
+            conn.close()
+            del st.session_state.dictado_entrada
+            st.success("Guardado.")
+            st.rerun()
+        else:
+            st.error("Verifica que haya un producto y al menos 1 cantidad.")
+            
+    if st.button("❌ Cancelar", use_container_width=True):
+        del st.session_state.dictado_entrada
+        st.rerun()
+
+@st.dialog("🎙️ Revisar y Guardar Dictado (Horneado)")
+def dialog_voz_horneado():
+    texto = st.session_state.dictado_horneado
+    st.write(f"**Escuchaste:** *'{texto}'*")
+    
+    prod_enc, paq_enc, pz_enc = procesar_texto_voz(texto)
+    idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
+    
+    prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
+    col1, col2 = st.columns(2)
+    with col1:
+        paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
+    with col2:
+        pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+        
+    if st.button("🔥 Confirmar Horneado", use_container_width=True):
+        if prod_sel and (paq_sel > 0 or pz_sel > 0):
+            pz_a_hornear = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
+            stock_actual = calcular_stock_actual()
+            disp_pz = stock_actual[prod_sel]["piezas_totales"]
+            if pz_a_hornear > disp_pz:
+                st.error(f"⚠️ Stock insuficiente. Hay {disp_pz} pz disponibles.")
+            else:
+                fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
+                          (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora))
+                conn.commit()
+                conn.close()
+                del st.session_state.dictado_horneado
+                st.success("Horneado registrado.")
+                st.rerun()
+        else:
+            st.error("Verifica que haya un producto y al menos 1 cantidad.")
+            
+    if st.button("❌ Cancelar", use_container_width=True):
+        del st.session_state.dictado_horneado
+        st.rerun()
+
+# Pop-ups para el modo MANUAL
 @st.dialog("Confirmar Entrada de Mercancía")
-def dialog_confirmar_entrada(producto, paquetes, piezas):
+def dialog_confirmar_entrada_manual(producto, paquetes, piezas):
     st.write(f"**Producto:** {producto}")
     st.write(f"**Ingreso:** {piezas} piezas en total")
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
@@ -295,7 +376,7 @@ def dialog_confirmar_entrada(producto, paquetes, piezas):
         st.rerun()
 
 @st.dialog("Confirmar Horneado")
-def dialog_confirmar_horneado(producto, paquetes, piezas):
+def dialog_confirmar_horneado_manual(producto, paquetes, piezas):
     st.write(f"**Producto a hornear:** {producto}")
     st.write(f"**Horneado:** {piezas} piezas en total")
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
@@ -310,7 +391,7 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
         st.rerun()
 
 @st.dialog("Confirmar Registro Coca-Cola")
-def dialog_confirmar_coca(producto, cantidad, caducidad):
+def dialog_confirmar_coca_manual(producto, cantidad, caducidad):
     st.write(f"**Presentación:** {producto}")
     st.write(f"**Cantidad:** {cantidad} piezas")
     st.write(f"**Caducidad:** {caducidad}")
@@ -386,7 +467,7 @@ idx_urano = lista_tiendas.index("URANO") if "URANO" in lista_tiendas else 0
 seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_urano, placeholder="Elige sucursal...")
 numero_whatsapp = opciones_wa[seleccion_wa] if seleccion_wa else ""
 if seleccion_wa:
-    st.sidebar.caption(f"📱 WhatsApp: **{numero_whatsapp}**")
+    st.sidebar.caption(f"📱 WhatsApp asociado: **{numero_whatsapp}**")
 
 st.sidebar.divider()
 
@@ -420,21 +501,20 @@ with tab1:
     
     if tipo_entrada == "🗣️ Voz":
         st.info("💡 Dicta ej: 'Llegaron dos paquetes y cinco piezas de tutis'")
-        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, key='stt_ent')
+        texto_entrada = speech_to_text(
+            language='es-MX', 
+            start_prompt="🎙️ Toca para Dictar", 
+            stop_prompt="🔴 Grabando...", 
+            use_container_width=True, 
+            just_once=True, 
+            key='stt_entrada'
+        )
         if texto_entrada:
-            prod, paq, pz = procesar_texto_voz(texto_entrada)
-            if prod and (paq > 0 or pz > 0):
-                pz_totales = (paq * EMPAQUES[prod]["piezas_x_paq"]) + pz
-                fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
-                conn = sqlite3.connect(DB_NAME)
-                c = conn.cursor()
-                c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
-                          (prod, paq, pz_totales, fecha_ahora, fecha_ahora, fecha_ahora))
-                conn.commit()
-                conn.close()
-                st.success(f"✅ ¡Guardado automático! {paq} paq y {pz} pz de {prod}.")
-            else:
-                st.error(f"❌ No entendí: '{texto_entrada}'. Intenta de nuevo indicando producto y cantidad.")
+            st.session_state.dictado_entrada = texto_entrada
+            st.rerun()
+
+    if "dictado_entrada" in st.session_state:
+        dialog_voz_entrada()
 
     elif tipo_entrada == "✍️ Manual":
         with st.form("form_entrada", clear_on_submit=True):
@@ -450,7 +530,7 @@ with tab1:
                 val_pz = cant_piezas if cant_piezas is not None else 0
                 if prod_sel and (val_paq > 0 or val_pz > 0):
                     pz_totales = (val_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + val_pz
-                    dialog_confirmar_entrada(prod_sel, val_paq, pz_totales)
+                    dialog_confirmar_entrada_manual(prod_sel, val_paq, pz_totales)
                 else:
                     st.error("Registra al menos 1 paquete o pieza.")
 
@@ -463,27 +543,20 @@ with tab2:
     
     if tipo_horneado == "🗣️ Voz":
         st.info("💡 Dicta ej: 'Hornear tres paquetes y una pieza de Volován de Pierna'")
-        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, key='stt_horn')
+        texto_horneado = speech_to_text(
+            language='es-MX', 
+            start_prompt="🎙️ Toca para Dictar", 
+            stop_prompt="🔴 Grabando...", 
+            use_container_width=True, 
+            just_once=True, 
+            key='stt_horneado'
+        )
         if texto_horneado:
-            prod, paq, pz = procesar_texto_voz(texto_horneado)
-            if prod and (paq > 0 or pz > 0):
-                pz_a_hornear = (paq * EMPAQUES[prod]["piezas_x_paq"]) + pz
-                stock_actual = calcular_stock_actual()
-                disp_pz = stock_actual[prod]["piezas_totales"]
-                
-                if pz_a_hornear > disp_pz:
-                    st.error(f"⚠️ Stock insuficiente. Intentaste hornear {pz_a_hornear} pz de {prod}, pero solo hay {disp_pz} pz disponibles.")
-                else:
-                    fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
-                    conn = sqlite3.connect(DB_NAME)
-                    c = conn.cursor()
-                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
-                              (prod, paq, pz_a_hornear, fecha_ahora, fecha_ahora))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"🔥 ¡Horneado automático! {paq} paq y {pz} pz de {prod}.")
-            else:
-                st.error(f"❌ No entendí: '{texto_horneado}'. Intenta de nuevo indicando producto y cantidad.")
+            st.session_state.dictado_horneado = texto_horneado
+            st.rerun()
+
+    if "dictado_horneado" in st.session_state:
+        dialog_voz_horneado()
 
     elif tipo_horneado == "✍️ Manual":
         with st.form("form_horneado", clear_on_submit=True):
@@ -504,7 +577,7 @@ with tab2:
                     if pz_a_hornear > disp_pz:
                         st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} pz.")
                     else:
-                        dialog_confirmar_horneado(prod_hornear, val_paq_h, pz_a_hornear)
+                        dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, pz_a_hornear)
                 else:
                     st.error("Completa cantidad.")
 
@@ -554,7 +627,7 @@ with tab3:
         
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_coca and cant_coca and caducidad_coca:
-                dialog_confirmar_coca(prod_coca, cant_coca, caducidad_coca)
+                dialog_confirmar_coca_manual(prod_coca, cant_coca, caducidad_coca)
             else:
                 st.error("Completa todos los campos, incluyendo la caducidad.")
 
