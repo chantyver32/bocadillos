@@ -26,16 +26,12 @@ EMPAQUES = {
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Tabla Usuarios para Login
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, 
                     username TEXT UNIQUE, 
                     password TEXT
                 )''')
-    # Crear usuario admin por defecto si no existe
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
-    
-    # Tablas de Inventario
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
@@ -67,7 +63,6 @@ init_db()
 # FUNCIONES AUXILIARES Y EXTRACCIÓN DE VOZ
 # ==========================================
 def calcular_stock_actual():
-    """Calcula el stock basándose en las piezas totales para no perder piezas sueltas."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     stock = {}
@@ -81,7 +76,6 @@ def calcular_stock_actual():
         piezas_disp = entradas_pz - salidas_pz
         pz_x_paq = EMPAQUES[prod]["piezas_x_paq"]
         
-        # Calcular cuántos paquetes enteros y cuántas piezas sueltas quedan
         paq_disp = piezas_disp // pz_x_paq
         pz_sueltas = piezas_disp % pz_x_paq
         
@@ -93,44 +87,117 @@ def calcular_stock_actual():
     conn.close()
     return stock
 
-def generar_imagen_stock(titulo, lineas_texto):
-    """Genera una imagen bonita estilo reporte/tabla con filas alternadas."""
-    ancho = 600
-    alto_encabezado = 60
-    alto_fila = 40
-    margen = 20
-    alto_total = alto_encabezado + (len(lineas_texto) * alto_fila) + margen * 2
+def generar_plantilla_bocadillos(datos, fecha_actualizacion):
+    """Genera una plantilla profesional idéntica a la solicitada visualmente."""
+    width = 900
+    header_height = 130
+    table_header_height = 45
+    row_height = 55
+    total_height = header_height + table_header_height + (len(datos) * row_height)
 
-    # Fondo general suave
-    img = Image.new('RGB', (ancho, alto_total), color=(245, 247, 250))
+    # Fondo principal
+    img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
     draw = ImageDraw.Draw(img)
-    
-    # Rectángulo del encabezado (Azul oscuro elegante)
-    draw.rectangle([0, 0, ancho, alto_encabezado], fill=(31, 78, 121))
-    draw.text((margen, 20), f"📊 {titulo}", fill=(255, 255, 255))
-    
-    # Dibujar las filas con estilo "cebra" (colores alternos) para que se vea bonito
-    y = alto_encabezado + margen
-    for i, linea in enumerate(lineas_texto):
-        color_fondo = (255, 255, 255) if i % 2 == 0 else (235, 240, 245)
-        
-        # Dibujar fondo de la fila
-        draw.rectangle([margen, y, ancho - margen, y + alto_fila], fill=color_fondo)
-        
-        # Borde sutil en la parte inferior de la fila
-        draw.line([margen, y + alto_fila, ancho - margen, y + alto_fila], fill=(220, 225, 230), width=1)
-        
-        # Texto de la fila
-        draw.text((margen + 15, y + 12), linea, fill=(40, 40, 40))
-        y += alto_fila
 
-    img.save("reporte.png")
-    return "reporte.png"
+    # Colores institucionales
+    WINE = (128, 21, 43)        # Vino oscuro
+    WINE_LIGHT = (160, 40, 70)  # Vino claro
+    TEXT_DARK = (40, 40, 40)    # Texto general
+    WHITE = (255, 255, 255)
+    ROW_ALT = (253, 243, 243)   # Rosa pálido para filas alternas
+    LINE_COLOR = (235, 220, 225) # Separadores
+
+    # Sistema seguro de fuentes
+    def get_font(names, size):
+        for name in names:
+            try:
+                return ImageFont.truetype(name, size)
+            except:
+                continue
+        return ImageFont.load_default()
+
+    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 42)
+    font_sub = get_font(["DejaVuSans.ttf", "arial.ttf", "Helvetica.ttf"], 15)
+    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 13)
+    font_td = get_font(["DejaVuSans.ttf", "arial.ttf", "Helvetica.ttf"], 15)
+    font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 11)
+    font_logo1 = get_font(["DejaVuSerif-BoldItalic.ttf", "georgiai.ttf", "Times-BoldItalic.ttf"], 28)
+    font_logo2 = get_font(["DejaVuSans.ttf", "arial.ttf", "Helvetica.ttf"], 14)
+
+    # --- ENCABEZADO ---
+    draw.text((width//2, 35), "BOCADILLOS", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, 80), f"🗓️ ACTUALIZADO AL {fecha_actualizacion}", fill=TEXT_DARK, font=font_sub, anchor="mm")
+
+    # Logo Simulado (Texto elegante esquina superior derecha)
+    draw.text((width - 30, 40), "Champlitte", fill=WINE, font=font_logo1, anchor="rm")
+    draw.text((width - 30, 70), "Pastelería", fill=WINE_LIGHT, font=font_logo2, anchor="rm")
+
+    # --- CABECERA DE LA TABLA ---
+    y = header_height
+    draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
+    
+    col_prod = 200
+    col_linea = 520
+    col_cant = 680
+    col_fecha = 820
+
+    draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_linea, y + 22), "LÍNEA", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cant, y + 22), "CANTIDAD", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_fecha, y + 22), "FECHA", fill=WHITE, font=font_th, anchor="mm")
+
+    y += table_header_height
+
+    # --- FILAS DE LA TABLA ---
+    for i, item in enumerate(datos):
+        bg_color = WHITE if i % 2 == 0 else ROW_ALT
+        draw.rectangle([0, y, width, y + row_height], fill=bg_color)
+
+        # Divisores verticales delgados
+        draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([600, y, 600, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([750, y, 750, y + row_height], fill=LINE_COLOR, width=1)
+
+        # Columna 1: Producto
+        draw.text((30, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+
+        # Columna 2: Línea (Con etiqueta redondeada)
+        linea_texto = str(item.get("linea", ""))
+        
+        # Colores del "badge" idénticos a la referencia visual
+        badge_bg = (252, 230, 230) if "Dulce" in linea_texto else WINE
+        badge_text = WINE if "Dulce" in linea_texto else WHITE
+        if linea_texto == "Dulce - Salado":
+            badge_bg = WINE_LIGHT
+            badge_text = WHITE
+
+        badge_w, badge_h = 130, 26
+        badge_x = col_linea - (badge_w//2)
+        badge_y = y + (row_height//2) - (badge_h//2)
+        
+        draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=13, fill=badge_bg)
+        draw.text((col_linea, y + (row_height//2)), f"LÍNEA {linea_texto[:1].upper()}" if len(linea_texto) > 1 else linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
+
+        # Columna 3: Cantidad (Resaltada)
+        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
+
+        # Columna 4: Fecha (Con ícono)
+        fecha_texto = item.get("fecha", "")
+        if fecha_texto and fecha_texto != "-":
+            draw.text((col_fecha, y + (row_height//2)), f"🗓️ {fecha_texto}", fill=TEXT_DARK, font=font_td, anchor="mm")
+        else:
+            draw.text((col_fecha, y + (row_height//2)), "-", fill=TEXT_DARK, font=font_td, anchor="mm")
+
+        # Divisor horizontal inferior
+        draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
+
+        y += row_height
+
+    img.save("reporte_plantilla.png")
+    return "reporte_plantilla.png"
 
 def extraer_datos_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-    
-    # 1. Extraer Producto (ignorando acentos y mayúsculas)
     prod_encontrado = None
     for prod in EMPAQUES.keys():
         prod_norm = prod.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
@@ -138,7 +205,6 @@ def extraer_datos_voz(texto):
             prod_encontrado = prod
             break
             
-    # 2. Extraer Cantidad (soporta dígitos y palabras)
     cant_encontrada = None
     numeros_digitos = re.findall(r'\d+', texto)
     if numeros_digitos:
@@ -155,8 +221,7 @@ def extraer_datos_voz(texto):
                 cant_encontrada = valor
                 break
     
-    # 3. Extraer Unidad (Piezas o Paquetes)
-    unidad_encontrada = "Paquetes" # Paquetes por defecto
+    unidad_encontrada = "Paquetes"
     if re.search(r'\bpieza[s]?\b', texto_norm):
         unidad_encontrada = "Piezas"
     elif re.search(r'\bpaquete[s]?\b', texto_norm):
@@ -198,7 +263,7 @@ def dialog_procesar_voz():
                 st.session_state["auto_cant_paq"] = 0
                 st.session_state["auto_cant_pz"] = cant_confirmada
                 
-            del st.session_state["ultimo_dictado"] # Limpiamos la memoria
+            del st.session_state["ultimo_dictado"]
             st.rerun()
     with col2:
         if st.button("❌ Cancelar"):
@@ -219,7 +284,6 @@ def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
         conn.commit()
         conn.close()
         
-        # Limpieza de variables si existían
         for key in ["prod_sel", "cant_paq", "cant_piezas", "auto_prod", "auto_cant_paq", "auto_cant_pz"]:
             if key in st.session_state: del st.session_state[key]
                 
@@ -317,9 +381,8 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 
 st.sidebar.divider()
 
-# ⭐️ AHORA MÉXICO ESTÁ EN LA LISTA COMO SUCURSAL ⭐️
 opciones_wa = {
-    "MÉXICO": "521234567890", # <- Puedes cambiar este número por el oficial
+    "MÉXICO": "521234567890", 
     "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
     "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
     "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
@@ -332,7 +395,6 @@ opciones_wa = {
     "EMILIANO ZAPATA": "522969628525"
 }
 
-# ⭐️ MÉXICO AHORA ES LA SUCURSAL POR DEFECTO ⭐️
 lista_tiendas = list(opciones_wa.keys())
 idx_defecto = lista_tiendas.index("MÉXICO") if "MÉXICO" in lista_tiendas else 0
 
@@ -399,11 +461,9 @@ with tab1:
             st.session_state.ultimo_dictado = texto_entrada
             st.rerun()
 
-    # Disparador del pop-up de voz
     if "ultimo_dictado" in st.session_state:
         dialog_procesar_voz()
 
-    # Rescatar variables en caso de autocompletado por voz
     idx_default = None
     if "auto_prod" in st.session_state and st.session_state["auto_prod"] in EMPAQUES:
         idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_prod"])
@@ -469,22 +529,45 @@ with tab2:
                 st.error("Por favor completa los campos seleccionando un producto y una cantidad.")
 
     st.markdown("---")
-    st.subheader("🖼️ Stock Disponible en Nevera")
+    st.subheader("🖼️ Reporte Visual de Stock")
     
+    # Extraemos el stock y preparamos los datos EXACTAMENTE para la plantilla
     stock_actual = calcular_stock_actual()
-    lineas_reporte = []
+    datos_plantilla = []
+    fecha_hoy = datetime.now().strftime('%Y-%m-%d')
+    lineas_whatsapp = []
     
     for prod, datos in stock_actual.items():
-        if datos['piezas_sueltas'] > 0:
-            lineas_reporte.append(f"📦 {prod}: {datos['paquetes']} paq + {datos['piezas_sueltas']} pzs")
-        else:
-            lineas_reporte.append(f"📦 {prod}: {datos['paquetes']} paq")
+        if datos['piezas_totales'] > 0:
+            # Formato de cantidad (ej: 5 paq + 3 pz)
+            cant_texto = f"{datos['paquetes']} paq"
+            if datos['piezas_sueltas'] > 0:
+                cant_texto += f" + {datos['piezas_sueltas']} pz"
+                
+            datos_plantilla.append({
+                "producto": prod,
+                "linea": EMPAQUES[prod]["categoria"],
+                "cantidad": cant_texto,
+                "fecha": fecha_hoy 
+            })
+            
+            lineas_whatsapp.append(f"📦 {prod}: {cant_texto}")
+            
+    # Si la base de datos de inventario está vacía, mostramos una fila de aviso.
+    if not datos_plantilla:
+        datos_plantilla.append({
+            "producto": "Sin inventario disponible",
+            "linea": "-",
+            "cantidad": "0",
+            "fecha": fecha_hoy
+        })
+        lineas_whatsapp.append("No hay inventario disponible.")
         
-    path_img = generar_imagen_stock(f"STOCK {seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}", lineas_reporte)
+    path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_hoy)
     
-    st.image(path_img, caption="Reporte actual generado automáticamente")
+    st.image(path_img, caption="Plantilla Oficial generada automáticamente", use_column_width=True)
     
-    texto_whatsapp = f"Stock en Nevera ({seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}):\n" + "\n".join(lineas_reporte)
+    texto_whatsapp = f"Stock en Nevera ({seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}):\n" + "\n".join(lineas_whatsapp)
     url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto_whatsapp)}"
     
     st.markdown(f"[📲 **Enviar reporte por WhatsApp a {seleccion_wa}**]({url_wa})", unsafe_allow_html=True)
