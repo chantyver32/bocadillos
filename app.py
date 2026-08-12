@@ -67,18 +67,28 @@ init_db()
 # FUNCIONES AUXILIARES Y EXTRACCIÓN DE VOZ
 # ==========================================
 def calcular_stock_actual():
+    """Calcula el stock basándose en las piezas totales para no perder piezas sueltas."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     stock = {}
     for prod in EMPAQUES.keys():
-        c.execute("SELECT SUM(paquetes) FROM entradas WHERE producto = ?", (prod,))
-        entradas = c.fetchone()[0] or 0
-        c.execute("SELECT SUM(paquetes) FROM horneado WHERE producto = ?", (prod,))
-        salidas = c.fetchone()[0] or 0
-        paq_disp = entradas - salidas
+        c.execute("SELECT SUM(piezas_totales) FROM entradas WHERE producto = ?", (prod,))
+        entradas_pz = c.fetchone()[0] or 0
+        
+        c.execute("SELECT SUM(piezas_totales) FROM horneado WHERE producto = ?", (prod,))
+        salidas_pz = c.fetchone()[0] or 0
+        
+        piezas_disp = entradas_pz - salidas_pz
+        pz_x_paq = EMPAQUES[prod]["piezas_x_paq"]
+        
+        # Calcular cuántos paquetes enteros y cuántas piezas sueltas quedan
+        paq_disp = piezas_disp // pz_x_paq
+        pz_sueltas = piezas_disp % pz_x_paq
+        
         stock[prod] = {
             "paquetes": paq_disp,
-            "piezas": paq_disp * EMPAQUES[prod]["piezas_x_paq"]
+            "piezas_sueltas": pz_sueltas,
+            "piezas_totales": piezas_disp
         }
     conn.close()
     return stock
@@ -122,8 +132,15 @@ def extraer_datos_voz(texto):
             if re.search(rf'\b{palabra}\b', texto_norm):
                 cant_encontrada = valor
                 break
+    
+    # 3. Extraer Unidad (Piezas o Paquetes)
+    unidad_encontrada = "Paquetes" # Paquetes por defecto
+    if re.search(r'\bpieza[s]?\b', texto_norm):
+        unidad_encontrada = "Piezas"
+    elif re.search(r'\bpaquete[s]?\b', texto_norm):
+        unidad_encontrada = "Paquetes"
                 
-    return prod_encontrado, cant_encontrada
+    return prod_encontrado, cant_encontrada, unidad_encontrada
 
 # ==========================================
 # POP-UPS DE CONFIRMACIÓN (@st.dialog)
@@ -134,21 +151,32 @@ def dialog_procesar_voz():
     st.write(f"**El sistema escuchó:** *'{texto_dictado}'*")
     st.divider()
     
-    prod_encontrado, cant_encontrada = extraer_datos_voz(texto_dictado)
+    prod_encontrado, cant_encontrada, unidad_encontrada = extraer_datos_voz(texto_dictado)
 
     st.write("Verifica si los datos extraídos son correctos:")
     
     idx_prod = list(EMPAQUES.keys()).index(prod_encontrado) if prod_encontrado else None
     
     prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod)
-    cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada)
+    
+    col_u, col_c = st.columns(2)
+    with col_u:
+        unidad_confirmada = st.radio("Unidad:", ["Paquetes", "Piezas"], index=0 if unidad_encontrada == "Paquetes" else 1)
+    with col_c:
+        cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada)
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("✅ Autocompletar"):
             st.session_state["auto_prod"] = prod_confirmado
-            st.session_state["auto_cant"] = cant_confirmada
-            del st.session_state["ultimo_dictado"] # Limpiamos la memoria para cerrar el dialog
+            if unidad_confirmada == "Paquetes":
+                st.session_state["auto_cant_paq"] = cant_confirmada
+                st.session_state["auto_cant_pz"] = 0
+            else:
+                st.session_state["auto_cant_paq"] = 0
+                st.session_state["auto_cant_pz"] = cant_confirmada
+                
+            del st.session_state["ultimo_dictado"] # Limpiamos la memoria
             st.rerun()
     with col2:
         if st.button("❌ Cancelar"):
@@ -158,7 +186,7 @@ def dialog_procesar_voz():
 @st.dialog("Confirmar Entrada de Mercancía")
 def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
     st.write(f"**Producto:** {producto}")
-    st.write(f"**Paquetes:** {paquetes} ({piezas} piezas en total)")
+    st.write(f"**Ingreso:** {piezas} piezas en total")
     st.write(f"**Caducidad:** {caducidad}")
     
     if st.button("✅ Confirmar y Guardar"):
@@ -169,9 +197,9 @@ def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
         conn.commit()
         conn.close()
         
-        for key in ["prod_sel", "cant_paq"]:
-            if key in st.session_state:
-                del st.session_state[key]
+        # Limpieza de variables si existían
+        for key in ["prod_sel", "cant_paq", "cant_piezas", "auto_prod", "auto_cant_paq", "auto_cant_pz"]:
+            if key in st.session_state: del st.session_state[key]
                 
         st.success("Guardado exitosamente.")
         st.rerun()
@@ -179,7 +207,7 @@ def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
 @st.dialog("Confirmar Horneado")
 def dialog_confirmar_horneado(producto, paquetes, piezas):
     st.write(f"**Producto a hornear:** {producto}")
-    st.write(f"**Paquetes:** {paquetes} ({piezas} piezas totales)")
+    st.write(f"**Horneado:** {piezas} piezas en total")
     
     if st.button("🔥 Confirmar Horneado"):
         hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -190,9 +218,8 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
         conn.commit()
         conn.close()
         
-        for key in ["hornear_prod", "hornear_cant"]:
-            if key in st.session_state:
-                del st.session_state[key]
+        for key in ["hornear_prod", "hornear_cant_paq", "hornear_cant_pz"]:
+            if key in st.session_state: del st.session_state[key]
                 
         st.success("Horneado registrado.")
         st.rerun()
@@ -281,8 +308,9 @@ opciones_wa = {
     "EMILIANO ZAPATA": "522969628525"
 }
 
+# ⭐️ URANO AHORA ES LA SUCURSAL POR DEFECTO ⭐️
 lista_tiendas = list(opciones_wa.keys())
-idx_defecto = lista_tiendas.index("COSTA VERDE") if "COSTA VERDE" in lista_tiendas else 0
+idx_defecto = lista_tiendas.index("URANO") if "URANO" in lista_tiendas else 0
 
 seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_defecto)
 numero_whatsapp = opciones_wa[seleccion_wa]
@@ -333,7 +361,7 @@ with tab1:
     )
     
     if tipo_entrada == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco paquetes de Volován de Jamón')")
+        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco piezas de Volován de Jamón')")
         texto_entrada = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Toca para Dictar", 
@@ -343,20 +371,21 @@ with tab1:
             key='stt_entrada'
         )
         
-        # Almacenamos en memoria para que el pop-up no desaparezca al recargar
         if texto_entrada:
             st.session_state.ultimo_dictado = texto_entrada
             st.rerun()
 
-    # Si hay un dictado en memoria, forzamos a que se abra el dialog
+    # Disparador del pop-up de voz
     if "ultimo_dictado" in st.session_state:
         dialog_procesar_voz()
 
+    # Rescatar variables en caso de autocompletado por voz
     idx_default = None
     if "auto_prod" in st.session_state and st.session_state["auto_prod"] in EMPAQUES:
         idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_prod"])
         
-    cant_default = st.session_state.get("auto_cant", None)
+    cant_default_paq = st.session_state.get("auto_cant_paq", 0)
+    cant_default_pz = st.session_state.get("auto_cant_pz", 0)
 
     with st.form("form_entrada", clear_on_submit=True):
         prod_sel = st.selectbox(
@@ -366,27 +395,23 @@ with tab1:
             placeholder="Elija un producto...", 
             key="prod_sel"
         )
-        cant_paq = st.number_input(
-            "Cantidad de Paquetes recibidos", 
-            min_value=1, 
-            step=1, 
-            value=cant_default, 
-            placeholder="0", 
-            key="cant_paq"
-        )
+        
+        col_p, col_z = st.columns(2)
+        with col_p:
+            cant_paq = st.number_input("Paquetes", min_value=0, step=1, value=cant_default_paq, key="cant_paq")
+        with col_z:
+            cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, key="cant_piezas")
+            
         fecha_cad = st.date_input("Fecha de Caducidad", value=None)
         
         btn_guardar = st.form_submit_button("Revisar y Registrar")
         
         if btn_guardar:
-            if prod_sel and cant_paq and fecha_cad:
-                if "auto_prod" in st.session_state: del st.session_state["auto_prod"]
-                if "auto_cant" in st.session_state: del st.session_state["auto_cant"]
-                
-                pz_totales = cant_paq * EMPAQUES[prod_sel]["piezas_x_paq"]
+            if prod_sel and (cant_paq > 0 or cant_piezas > 0) and fecha_cad:
+                pz_totales = (cant_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + cant_piezas
                 dialog_confirmar_entrada(prod_sel, cant_paq, pz_totales, fecha_cad)
             else:
-                st.error("Por favor completa todos los campos del formulario.")
+                st.error("Por favor completa los campos y asegúrate de registrar al menos 1 paquete o pieza.")
 
 # ------------------------------------------
 # PESTAÑA 2: REGISTRO DE HORNEADO
@@ -394,28 +419,30 @@ with tab1:
 with tab2:
     st.header("Horneado de Mercancía")
 
-    texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar Horneado", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_horneado')
-    if texto_horneado:
-        st.info(f"Escuchaste: {texto_horneado}")
-
     with st.form("form_horneado", clear_on_submit=True):
         prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=None, placeholder="Elija un producto...", key="hornear_prod")
-        cant_hornear = st.number_input("Paquetes a Hornear", min_value=1, step=1, value=None, placeholder="0", key="hornear_cant")
+        
+        col_hp, col_hz = st.columns(2)
+        with col_hp:
+            cant_hornear_paq = st.number_input("Paquetes a Hornear", min_value=0, step=1, value=0, key="hornear_cant_paq")
+        with col_hz:
+            cant_hornear_pz = st.number_input("Piezas a Hornear", min_value=0, step=1, value=0, key="hornear_cant_pz")
         
         btn_horneo = st.form_submit_button("Revisar y Hornear")
         
         if btn_horneo:
-            if prod_hornear and cant_hornear:
-                stock_actual = calcular_stock_actual()
-                disp = stock_actual[prod_hornear]["paquetes"]
+            if prod_hornear and (cant_hornear_paq > 0 or cant_hornear_pz > 0):
+                pz_a_hornear = (cant_hornear_paq * EMPAQUES[prod_hornear]["piezas_x_paq"]) + cant_hornear_pz
                 
-                if cant_hornear > disp:
-                    st.warning(f"⚠️ Stock insuficiente. Solo hay {disp} paquetes disponibles en nevera.")
+                stock_actual = calcular_stock_actual()
+                disp_pz = stock_actual[prod_hornear]["piezas_totales"]
+                
+                if pz_a_hornear > disp_pz:
+                    st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} piezas disponibles en nevera para este producto.")
                 else:
-                    pz_totales = cant_hornear * EMPAQUES[prod_hornear]["piezas_x_paq"]
-                    dialog_confirmar_horneado(prod_hornear, cant_hornear, pz_totales)
+                    dialog_confirmar_horneado(prod_hornear, cant_hornear_paq, pz_a_hornear)
             else:
-                st.error("Por favor completa los campos para registrar el horneado.")
+                st.error("Por favor completa los campos seleccionando un producto y una cantidad.")
 
     st.markdown("---")
     st.subheader("🖼️ Stock Disponible en Nevera")
@@ -424,7 +451,10 @@ with tab2:
     lineas_reporte = []
     
     for prod, datos in stock_actual.items():
-        lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq ({datos['piezas']} pzs)")
+        if datos['piezas_sueltas'] > 0:
+            lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq + {datos['piezas_sueltas']} pzs")
+        else:
+            lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq")
         
     path_img = generar_imagen_stock(f"STOCK {seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}", lineas_reporte)
     
@@ -458,4 +488,3 @@ with tab3:
                 dialog_confirmar_coca(prod_coca, cant_coca, fecha_coca)
             else:
                 st.error("Por favor completa todos los campos.")
-    
