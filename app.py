@@ -14,7 +14,6 @@ st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="cent
 
 DB_NAME = "inventario_bocadillos.db"
 
-# ✅ Hojaldra Jamón ahora es categoría "Mixta"
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
     "Tutis": {"categoria": "Dulce", "piezas_x_paq": 27},
@@ -123,7 +122,7 @@ def insertar_logo(img, width):
         x_logo = (width - ancho_logo) // 2
         img.paste(logo, (x_logo, 20))
     except Exception:
-        pass # Si no encuentra el logo, ignora y deja el espacio en blanco
+        pass
 
 def get_font(names, size):
     for name in names:
@@ -209,7 +208,6 @@ def generar_plantilla_cocacola(datos, fecha_str):
     header_height = 130
     table_header_height = 45
     row_height = 55
-    # Altura dinámica
     total_height = espacio_logo + header_height + table_header_height + (len(datos) * row_height) + 40
 
     img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
@@ -473,4 +471,9 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
                 c.execute("DELETE FROM cocacola")
                 conn.commit()
                 conn.close()
-                st.sidebar.success("✅ BD limpiad
+                st.sidebar.success("✅ BD limpiada.")
+                st.rerun()
+
+# ==========================================
+# INTERFAZ STREAMLIT PRINCIPAL
+# ===================
