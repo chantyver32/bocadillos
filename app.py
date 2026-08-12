@@ -450,6 +450,3 @@ with tab1:
     
     if tipo_entrada == "🗣️ Entrada por Voz":
         st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco pie
-
-
-    
