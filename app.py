@@ -94,14 +94,36 @@ def calcular_stock_actual():
     return stock
 
 def generar_imagen_stock(titulo, lineas_texto):
-    img = Image.new('RGB', (600, 40 + len(lineas_texto) * 35 + 40), color=(245, 247, 250))
+    """Genera una imagen bonita estilo reporte/tabla con filas alternadas."""
+    ancho = 600
+    alto_encabezado = 60
+    alto_fila = 40
+    margen = 20
+    alto_total = alto_encabezado + (len(lineas_texto) * alto_fila) + margen * 2
+
+    # Fondo general suave
+    img = Image.new('RGB', (ancho, alto_total), color=(245, 247, 250))
     draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, 600, 50], fill=(31, 78, 121))
-    draw.text((20, 15), titulo, fill=(255, 255, 255))
-    y = 70
-    for linea in lineas_texto:
-        draw.text((20, y), linea, fill=(30, 30, 30))
-        y += 32
+    
+    # Rectángulo del encabezado (Azul oscuro elegante)
+    draw.rectangle([0, 0, ancho, alto_encabezado], fill=(31, 78, 121))
+    draw.text((margen, 20), f"📊 {titulo}", fill=(255, 255, 255))
+    
+    # Dibujar las filas con estilo "cebra" (colores alternos) para que se vea bonito
+    y = alto_encabezado + margen
+    for i, linea in enumerate(lineas_texto):
+        color_fondo = (255, 255, 255) if i % 2 == 0 else (235, 240, 245)
+        
+        # Dibujar fondo de la fila
+        draw.rectangle([margen, y, ancho - margen, y + alto_fila], fill=color_fondo)
+        
+        # Borde sutil en la parte inferior de la fila
+        draw.line([margen, y + alto_fila, ancho - margen, y + alto_fila], fill=(220, 225, 230), width=1)
+        
+        # Texto de la fila
+        draw.text((margen + 15, y + 12), linea, fill=(40, 40, 40))
+        y += alto_fila
+
     img.save("reporte.png")
     return "reporte.png"
 
@@ -295,7 +317,9 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 
 st.sidebar.divider()
 
+# ⭐️ AHORA MÉXICO ESTÁ EN LA LISTA COMO SUCURSAL ⭐️
 opciones_wa = {
+    "MÉXICO": "521234567890", # <- Puedes cambiar este número por el oficial
     "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
     "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
     "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
@@ -308,9 +332,9 @@ opciones_wa = {
     "EMILIANO ZAPATA": "522969628525"
 }
 
-# ⭐️ URANO AHORA ES LA SUCURSAL POR DEFECTO ⭐️
+# ⭐️ MÉXICO AHORA ES LA SUCURSAL POR DEFECTO ⭐️
 lista_tiendas = list(opciones_wa.keys())
-idx_defecto = lista_tiendas.index("URANO") if "URANO" in lista_tiendas else 0
+idx_defecto = lista_tiendas.index("MÉXICO") if "MÉXICO" in lista_tiendas else 0
 
 seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_defecto)
 numero_whatsapp = opciones_wa[seleccion_wa]
@@ -452,9 +476,9 @@ with tab2:
     
     for prod, datos in stock_actual.items():
         if datos['piezas_sueltas'] > 0:
-            lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq + {datos['piezas_sueltas']} pzs")
+            lineas_reporte.append(f"📦 {prod}: {datos['paquetes']} paq + {datos['piezas_sueltas']} pzs")
         else:
-            lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq")
+            lineas_reporte.append(f"📦 {prod}: {datos['paquetes']} paq")
         
     path_img = generar_imagen_stock(f"STOCK {seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}", lineas_reporte)
     
