@@ -2,3 +2,6 @@ streamlit
 Pillow
 SpeechRecognition
 PyAudio
+streamlit
+Pillow
+streamlit-mic-recorder
