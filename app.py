@@ -9,8 +9,11 @@ from streamlit_mic_recorder import speech_to_text
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
+st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
+
 DB_NAME = "inventario_bocadillos.db"
 
+# ✅ Hojaldra Jamón cambiada a "Línea S"
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
     "Tutis": {"categoria": "Dulce", "piezas_x_paq": 27},
@@ -20,7 +23,7 @@ EMPAQUES = {
     "Volován de Pierna": {"categoria": "Salado", "piezas_x_paq": 9},
     "Chorizo Hojaldrado": {"categoria": "Salado", "piezas_x_paq": 20},
     "Salchicha Hojaldrada": {"categoria": "Salado", "piezas_x_paq": 20},
-    "Hojaldra Jamón": {"categoria": "Dulce - Salado", "piezas_x_paq": 48},
+    "Hojaldra Jamón": {"categoria": "Línea S", "piezas_x_paq": 48},
 }
 
 def init_db():
@@ -32,35 +35,55 @@ def init_db():
                     password TEXT
                 )''')
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
+    
+    # ✅ Añadido fecha_actualizacion a todas las tablas para diferenciar registros y actualizaciones
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
                     paquetes INTEGER,
                     piezas_totales INTEGER,
                     fecha_caducidad TEXT,
-                    fecha_registro TEXT
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     c.execute('''CREATE TABLE IF NOT EXISTS horneado (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
                     paquetes INTEGER,
                     piezas_totales INTEGER,
-                    fecha_hora TEXT
+                    fecha_hora TEXT,
+                    fecha_actualizacion TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
                     cantidad INTEGER,
                     fecha_caducidad TEXT,
-                    fecha_registro TEXT
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES Y EXTRACCIÓN DE VOZ
+# FUNCIONES AUXILIARES
 # ==========================================
 def calcular_stock_actual():
     conn = sqlite3.connect(DB_NAME)
@@ -120,8 +143,8 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     font_logo1 = get_font(["DejaVuSerif-BoldItalic.ttf", "georgiai.ttf", "Times-BoldItalic.ttf"], 28)
     font_logo2 = get_font(["DejaVuSans.ttf", "arial.ttf", "Helvetica.ttf"], 14)
 
+    # ✅ Título siempre "BOCADILLOS"
     draw.text((width//2, 35), "BOCADILLOS", fill=WINE, font=font_title, anchor="mm")
-    # ✅ Se eliminó el emoji de calendario de la línea de actualización
     draw.text((width//2, 80), f"ACTUALIZADO AL {fecha_actualizacion}", fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     draw.text((width - 30, 40), "Champlitte", fill=WINE, font=font_logo1, anchor="rm")
@@ -133,12 +156,13 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     col_prod = 200
     col_linea = 520
     col_cant = 680
-    col_fecha = 820
+    col_totales = 820
 
+    # ✅ Estructura de tabla modificada (reemplazo de "FECHA" por "TOTALES")
     draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_linea, y + 22), "LÍNEA", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cant, y + 22), "CANTIDAD", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_fecha, y + 22), "FECHA", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_linea, y + 22), "CATEGORÍA", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cant, y + 22), "PAQUETE + PIEZAS", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_totales, y + 22), "TOTALES", fill=WHITE, font=font_th, anchor="mm")
 
     y += table_header_height
 
@@ -153,28 +177,21 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
         draw.text((30, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
 
         linea_texto = str(item.get("linea", ""))
-        
-        badge_bg = (252, 230, 230) if "Dulce" in linea_texto else WINE
-        badge_text = WINE if "Dulce" in linea_texto else WHITE
-        if linea_texto == "Dulce - Salado":
-            badge_bg = WINE_LIGHT
-            badge_text = WHITE
+        badge_bg = WINE_LIGHT if "Línea S" in linea_texto else ((252, 230, 230) if "Dulce" in linea_texto else WINE)
+        badge_text = WHITE if "Línea S" in linea_texto else (WINE if "Dulce" in linea_texto else WHITE)
 
         badge_w, badge_h = 130, 26
         badge_x = col_linea - (badge_w//2)
         badge_y = y + (row_height//2) - (badge_h//2)
         
         draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=13, fill=badge_bg)
-        draw.text((col_linea, y + (row_height//2)), f"LÍNEA {linea_texto[:1].upper()}" if len(linea_texto) > 1 else linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
+        draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
 
         draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
-        fecha_texto = item.get("fecha", "")
-        if fecha_texto and fecha_texto != "-":
-            # ✅ Se eliminó el emoji de calendario de la columna de fecha
-            draw.text((col_fecha, y + (row_height//2)), fecha_texto, fill=TEXT_DARK, font=font_td, anchor="mm")
-        else:
-            draw.text((col_fecha, y + (row_height//2)), "-", fill=TEXT_DARK, font=font_td, anchor="mm")
+        # ✅ Mostrar "Totales" (paquetes + piezas sueltas)
+        totales_valor = str(item.get("totales", "0"))
+        draw.text((col_totales, y + (row_height//2)), totales_valor, fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -216,7 +233,7 @@ def extraer_datos_voz(texto):
     return prod_encontrado, cant_encontrada, unidad_encontrada
 
 # ==========================================
-# POP-UPS DE CONFIRMACIÓN Y VOZ (@st.dialog)
+# POP-UPS DE CONFIRMACIÓN Y VOZ
 # ==========================================
 @st.dialog("🎙️ Confirmar datos de Entrada")
 def dialog_procesar_voz_entrada():
@@ -227,12 +244,13 @@ def dialog_procesar_voz_entrada():
     prod_encontrado, cant_encontrada, unidad_encontrada = extraer_datos_voz(texto)
     idx_prod = list(EMPAQUES.keys()).index(prod_encontrado) if prod_encontrado else None
     
-    prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod)
+    prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod, placeholder="Selecciona un producto...")
     col_u, col_c = st.columns(2)
     with col_u:
         unidad_confirmada = st.radio("Unidad:", ["Paquetes", "Piezas"], index=0 if unidad_encontrada == "Paquetes" else 1, key="rad_ent")
     with col_c:
-        cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada, key="num_ent")
+        # ✅ Vacío por defecto
+        cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada, key="num_ent", placeholder="0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -240,9 +258,9 @@ def dialog_procesar_voz_entrada():
             st.session_state["auto_ent_prod"] = prod_confirmado
             if unidad_confirmada == "Paquetes":
                 st.session_state["auto_ent_paq"] = cant_confirmada
-                st.session_state["auto_ent_pz"] = 0
+                st.session_state["auto_ent_pz"] = None
             else:
-                st.session_state["auto_ent_paq"] = 0
+                st.session_state["auto_ent_paq"] = None
                 st.session_state["auto_ent_pz"] = cant_confirmada
             del st.session_state["dictado_entrada"]
             st.rerun()
@@ -260,12 +278,13 @@ def dialog_procesar_voz_horneado():
     prod_encontrado, cant_encontrada, unidad_encontrada = extraer_datos_voz(texto)
     idx_prod = list(EMPAQUES.keys()).index(prod_encontrado) if prod_encontrado else None
     
-    prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod, key="sel_horn")
+    prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod, key="sel_horn", placeholder="Selecciona un producto...")
     col_u, col_c = st.columns(2)
     with col_u:
         unidad_confirmada = st.radio("Unidad:", ["Paquetes", "Piezas"], index=0 if unidad_encontrada == "Paquetes" else 1, key="rad_horn")
     with col_c:
-        cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada, key="num_horn")
+        # ✅ Vacío por defecto
+        cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada, key="num_horn", placeholder="0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -273,9 +292,9 @@ def dialog_procesar_voz_horneado():
             st.session_state["auto_horn_prod"] = prod_confirmado
             if unidad_confirmada == "Paquetes":
                 st.session_state["auto_horn_paq"] = cant_confirmada
-                st.session_state["auto_horn_pz"] = 0
+                st.session_state["auto_horn_pz"] = None
             else:
-                st.session_state["auto_horn_paq"] = 0
+                st.session_state["auto_horn_paq"] = None
                 st.session_state["auto_horn_pz"] = cant_confirmada
             del st.session_state["dictado_horneado"]
             st.rerun()
@@ -284,17 +303,18 @@ def dialog_procesar_voz_horneado():
             del st.session_state["dictado_horneado"]
             st.rerun()
 
+# ✅ Eliminada variable "caducidad", el sistema toma fechas automáticas
 @st.dialog("Confirmar Entrada de Mercancía")
-def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
+def dialog_confirmar_entrada(producto, paquetes, piezas):
     st.write(f"**Producto:** {producto}")
     st.write(f"**Ingreso:** {piezas} piezas en total")
-    st.write(f"**Caducidad:** {caducidad}")
     
     if st.button("✅ Confirmar y Guardar"):
+        fecha_ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro) VALUES (?, ?, ?, ?, ?)",
-                  (producto, paquetes, piezas, str(caducidad), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
+                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -310,11 +330,11 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
     st.write(f"**Horneado:** {piezas} piezas en total")
     
     if st.button("🔥 Confirmar Horneado"):
-        hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora) VALUES (?, ?, ?, ?)",
-                  (producto, paquetes, piezas, hora_actual))
+        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
+                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -324,17 +344,18 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
         st.success("Horneado registrado.")
         st.rerun()
 
+# ✅ Eliminada variable "caducidad", se usa fecha automática
 @st.dialog("Confirmar Registro Coca-Cola")
-def dialog_confirmar_coca(producto, cantidad, caducidad):
+def dialog_confirmar_coca(producto, cantidad):
     st.write(f"**Presentación:** {producto}")
     st.write(f"**Cantidad:** {cantidad} piezas")
-    st.write(f"**Caducidad:** {caducidad}")
     
     if st.button("✅ Confirmar y Guardar"):
+        fecha_ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        c.execute("INSERT INTO cocacola (producto, cantidad, fecha_caducidad, fecha_registro) VALUES (?, ?, ?, ?)",
-                  (producto, cantidad, str(caducidad), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        c.execute("INSERT INTO cocacola (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
+                  (producto, cantidad, fecha_ahora, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -347,8 +368,6 @@ def dialog_confirmar_coca(producto, cantidad, caducidad):
 # ==========================================
 # SISTEMA DE LOGIN
 # ==========================================
-st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
-
 def verificar_login():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -394,8 +413,8 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 
 st.sidebar.divider()
 
+# ✅ Tienda MÉXICO completamente eliminada de la lista
 opciones_wa = {
-    "MÉXICO": "521234567890", 
     "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
     "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
     "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
@@ -409,10 +428,14 @@ opciones_wa = {
 }
 
 lista_tiendas = list(opciones_wa.keys())
-idx_defecto = lista_tiendas.index("MÉXICO") if "MÉXICO" in lista_tiendas else 0
-seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_defecto)
-numero_whatsapp = opciones_wa[seleccion_wa]
-st.sidebar.caption(f"📱 WhatsApp: **{numero_whatsapp}**")
+# ✅ Select de tienda sin valor por defecto (None)
+seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=None, placeholder="Elige sucursal...")
+
+numero_whatsapp = ""
+if seleccion_wa:
+    numero_whatsapp = opciones_wa[seleccion_wa]
+    st.sidebar.caption(f"📱 WhatsApp asociado: **{numero_whatsapp}**")
+
 st.sidebar.divider()
 
 if st.session_state.get('usuario_actual', '').lower() == 'admin':
@@ -439,151 +462,3 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
 st.title("📦 Control de Stock y Horneado")
 
 tab1, tab2, tab3 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola"])
-
-# ------------------------------------------
-# PESTAÑA 1: RECEPCIÓN DE MERCANCÍA
-# ------------------------------------------
-with tab1:
-    st.header("Registrar Nueva Mercancía")
-    
-    tipo_entrada = st.radio("Selecciona el método de captura:", ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], horizontal=True, key="radio_ent")
-    
-    if tipo_entrada == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco piezas de Volován de Jamón')")
-        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_entrada')
-        if texto_entrada:
-            st.session_state.dictado_entrada = texto_entrada
-            st.rerun()
-
-    if "dictado_entrada" in st.session_state:
-        dialog_procesar_voz_entrada()
-
-    idx_default = None
-    if "auto_ent_prod" in st.session_state and st.session_state["auto_ent_prod"] in EMPAQUES:
-        idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_ent_prod"])
-        
-    cant_default_paq = st.session_state.get("auto_ent_paq", 0)
-    cant_default_pz = st.session_state.get("auto_ent_pz", 0)
-
-    with st.form("form_entrada", clear_on_submit=True):
-        prod_sel = st.selectbox("Selecciona Producto", list(EMPAQUES.keys()), index=idx_default, placeholder="Elija un producto...", key="prod_sel")
-        
-        col_p, col_z = st.columns(2)
-        with col_p:
-            cant_paq = st.number_input("Paquetes", min_value=0, step=1, value=cant_default_paq, key="cant_paq")
-        with col_z:
-            cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, key="cant_piezas")
-            
-        fecha_cad = st.date_input("Fecha de Caducidad", value=None)
-        btn_guardar = st.form_submit_button("Revisar y Registrar")
-        
-        if btn_guardar:
-            if prod_sel and (cant_paq > 0 or cant_piezas > 0) and fecha_cad:
-                pz_totales = (cant_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + cant_piezas
-                dialog_confirmar_entrada(prod_sel, cant_paq, pz_totales, fecha_cad)
-            else:
-                st.error("Completa los campos y asegúrate de registrar al menos 1 paquete o pieza.")
-
-# ------------------------------------------
-# PESTAÑA 2: REGISTRO DE HORNEADO
-# ------------------------------------------
-with tab2:
-    st.header("Horneado de Mercancía")
-
-    tipo_horneado = st.radio("Selecciona el método de captura:", ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], horizontal=True, key="radio_horn")
-    
-    if tipo_horneado == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Hornear tres paquetes de Volován de Pierna')")
-        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_horneado')
-        if texto_horneado:
-            st.session_state.dictado_horneado = texto_horneado
-            st.rerun()
-
-    if "dictado_horneado" in st.session_state:
-        dialog_procesar_voz_horneado()
-        
-    idx_default_h = None
-    if "auto_horn_prod" in st.session_state and st.session_state["auto_horn_prod"] in EMPAQUES:
-        idx_default_h = list(EMPAQUES.keys()).index(st.session_state["auto_horn_prod"])
-        
-    cant_default_paq_h = st.session_state.get("auto_horn_paq", 0)
-    cant_default_pz_h = st.session_state.get("auto_horn_pz", 0)
-
-    with st.form("form_horneado", clear_on_submit=True):
-        prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=idx_default_h, placeholder="Elija un producto...", key="hornear_prod")
-        
-        col_hp, col_hz = st.columns(2)
-        with col_hp:
-            cant_hornear_paq = st.number_input("Paquetes a Hornear", min_value=0, step=1, value=cant_default_paq_h, key="hornear_cant_paq")
-        with col_hz:
-            cant_hornear_pz = st.number_input("Piezas a Hornear", min_value=0, step=1, value=cant_default_pz_h, key="hornear_cant_pz")
-        
-        btn_horneo = st.form_submit_button("Revisar y Hornear")
-        
-        if btn_horneo:
-            if prod_hornear and (cant_hornear_paq > 0 or cant_hornear_pz > 0):
-                pz_a_hornear = (cant_hornear_paq * EMPAQUES[prod_hornear]["piezas_x_paq"]) + cant_hornear_pz
-                
-                stock_actual = calcular_stock_actual()
-                disp_pz = stock_actual[prod_hornear]["piezas_totales"]
-                
-                if pz_a_hornear > disp_pz:
-                    st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} piezas disponibles en nevera para este producto.")
-                else:
-                    dialog_confirmar_horneado(prod_hornear, cant_hornear_paq, pz_a_hornear)
-            else:
-                st.error("Por favor completa los campos seleccionando un producto y una cantidad.")
-
-    st.markdown("---")
-    st.subheader("🖼️ Reporte Visual de Stock")
-    
-    stock_actual = calcular_stock_actual()
-    datos_plantilla = []
-    fecha_hoy = datetime.now().strftime('%Y-%m-%d')
-    lineas_whatsapp = []
-    
-    for prod, datos in stock_actual.items():
-        if datos['piezas_totales'] > 0:
-            cant_texto = f"{datos['paquetes']} paq"
-            if datos['piezas_sueltas'] > 0:
-                cant_texto += f" + {datos['piezas_sueltas']} pz"
-                
-            datos_plantilla.append({
-                "producto": prod,
-                "linea": EMPAQUES[prod]["categoria"],
-                "cantidad": cant_texto,
-                "fecha": fecha_hoy 
-            })
-            lineas_whatsapp.append(f"📦 {prod}: {cant_texto}")
-            
-    if not datos_plantilla:
-        datos_plantilla.append({"producto": "Sin inventario disponible", "linea": "-", "cantidad": "0", "fecha": fecha_hoy})
-        lineas_whatsapp.append("No hay inventario disponible.")
-        
-    path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_hoy)
-    
-    st.image(path_img, caption="Plantilla Oficial generada automáticamente", use_container_width=True)
-    
-    texto_whatsapp = f"Stock en Nevera ({seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}):\n" + "\n".join(lineas_whatsapp)
-    url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto_whatsapp)}"
-    st.markdown(f"[📲 **Enviar reporte por WhatsApp a {seleccion_wa}**]({url_wa})", unsafe_allow_html=True)
-
-# ------------------------------------------
-# PESTAÑA 3: COCA-COLA
-# ------------------------------------------
-with tab3:
-    st.header("Caducidades de Coca-Cola")
-    opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
-    
-    with st.form("form_coca", clear_on_submit=True):
-        prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar formato...", key="coca_prod")
-        cant_coca = st.number_input("Cantidad de Piezas", min_value=1, step=1, value=None, placeholder="0", key="coca_cant")
-        fecha_coca = st.date_input("Fecha de Caducidad", value=None)
-        
-        btn_coca = st.form_submit_button("Revisar y Registrar")
-        
-        if btn_coca:
-            if prod_coca and cant_coca and fecha_coca:
-                dialog_confirmar_coca(prod_coca, cant_coca, fecha_coca)
-            else:
-                st.error("Por favor completa todos los campos.")
