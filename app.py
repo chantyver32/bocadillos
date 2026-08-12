@@ -228,7 +228,6 @@ def generar_plantilla_cocacola(datos, fecha_str):
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
     
-    # ✅ Se agregaron 3 columnas: Presentación, Piezas y Caducidad
     col_prod, col_cant, col_cad = 200, 550, 780
 
     draw.text((col_prod, y + 22), "PRESENTACIÓN", fill=WHITE, font=font_th, anchor="mm")
@@ -245,7 +244,6 @@ def generar_plantilla_cocacola(datos, fecha_str):
         draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
         draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
         
-        # ✅ Dibuja la fecha de caducidad en el reporte
         draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
@@ -295,7 +293,7 @@ def dialog_procesar_voz_entrada():
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Autocompletar"):
+        if st.button("✅ Autocompletar", use_container_width=True):
             st.session_state["auto_ent_prod"] = prod_confirmado
             if unidad_confirmada == "Paquetes":
                 st.session_state["auto_ent_paq"] = cant_confirmada
@@ -306,7 +304,7 @@ def dialog_procesar_voz_entrada():
             del st.session_state["dictado_entrada"]
             st.rerun()
     with col2:
-        if st.button("❌ Cancelar"):
+        if st.button("❌ Cancelar", use_container_width=True):
             del st.session_state["dictado_entrada"]
             st.rerun()
 
@@ -328,7 +326,7 @@ def dialog_procesar_voz_horneado():
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Autocompletar"):
+        if st.button("✅ Autocompletar", use_container_width=True):
             st.session_state["auto_horn_prod"] = prod_confirmado
             if unidad_confirmada == "Paquetes":
                 st.session_state["auto_horn_paq"] = cant_confirmada
@@ -339,7 +337,7 @@ def dialog_procesar_voz_horneado():
             del st.session_state["dictado_horneado"]
             st.rerun()
     with col2:
-        if st.button("❌ Cancelar"):
+        if st.button("❌ Cancelar", use_container_width=True):
             del st.session_state["dictado_horneado"]
             st.rerun()
 
@@ -348,7 +346,7 @@ def dialog_confirmar_entrada(producto, paquetes, piezas):
     st.write(f"**Producto:** {producto}")
     st.write(f"**Ingreso:** {piezas} piezas en total")
     
-    if st.button("✅ Confirmar y Guardar"):
+    if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
@@ -366,7 +364,7 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
     st.write(f"**Producto a hornear:** {producto}")
     st.write(f"**Horneado:** {piezas} piezas en total")
     
-    if st.button("🔥 Confirmar Horneado"):
+    if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
@@ -379,14 +377,13 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
         st.success("Horneado registrado.")
         st.rerun()
 
-# ✅ Se recibe la variable caducidad y se guarda en la base de datos
 @st.dialog("Confirmar Registro Coca-Cola")
 def dialog_confirmar_coca(producto, cantidad, caducidad):
     st.write(f"**Presentación:** {producto}")
     st.write(f"**Cantidad:** {cantidad} piezas")
     st.write(f"**Caducidad:** {caducidad}")
     
-    if st.button("✅ Confirmar y Guardar"):
+    if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
@@ -465,7 +462,7 @@ st.sidebar.divider()
 if st.session_state.get('usuario_actual', '').lower() == 'admin':
     with st.sidebar.expander("🚨 Zona de Peligro"):
         confirmar_reset = st.checkbox("Confirmar borrado", key="check_reset")
-        if st.button("⚠️ RESET TOTAL"):
+        if st.button("⚠️ RESET TOTAL", use_container_width=True):
             if confirmar_reset:
                 conn = sqlite3.connect(DB_NAME)
                 c = conn.cursor()
@@ -491,7 +488,16 @@ with tab1:
     tipo_entrada = st.radio("Método:", ["✍️ Manual", "🗣️ Voz"], horizontal=True)
     if tipo_entrada == "🗣️ Voz":
         st.info("💡 Dicta: 'Llegaron cinco piezas de Volován de Jamón'")
-        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar", stop_prompt="🔴 Grabando...", just_once=True, key='stt_entrada')
+        
+        # ✅ AQUÍ REGRESAMOS use_container_width=True AL MICRÓFONO
+        texto_entrada = speech_to_text(
+            language='es-MX', 
+            start_prompt="🎙️ Dictar", 
+            stop_prompt="🔴 Grabando...", 
+            use_container_width=True, 
+            just_once=True, 
+            key='stt_entrada'
+        )
         if texto_entrada:
             st.session_state.dictado_entrada = texto_entrada
             st.rerun()
@@ -511,7 +517,8 @@ with tab1:
         with col_z:
             cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=cant_default_pz, placeholder="0")
             
-        if st.form_submit_button("Revisar y Registrar"):
+        # ✅ BOTÓN DE ENVIAR ANCHO
+        if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             val_paq = cant_paq if cant_paq is not None else 0
             val_pz = cant_piezas if cant_piezas is not None else 0
             if prod_sel and (val_paq > 0 or val_pz > 0):
@@ -528,7 +535,16 @@ with tab2:
     tipo_horneado = st.radio("Método de captura:", ["✍️ Manual", "🗣️ Voz"], horizontal=True, key="r_horn")
     if tipo_horneado == "🗣️ Voz":
         st.info("💡 Dicta: 'Hornear tres paquetes de Volován de Pierna'")
-        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar", stop_prompt="🔴 Grabando...", just_once=True, key='stt_horneado')
+        
+        # ✅ AQUÍ REGRESAMOS use_container_width=True AL MICRÓFONO
+        texto_horneado = speech_to_text(
+            language='es-MX', 
+            start_prompt="🎙️ Dictar", 
+            stop_prompt="🔴 Grabando...", 
+            use_container_width=True, 
+            just_once=True, 
+            key='stt_horneado'
+        )
         if texto_horneado:
             st.session_state.dictado_horneado = texto_horneado
             st.rerun()
@@ -548,7 +564,8 @@ with tab2:
         with col_hz:
             cant_hornear_pz = st.number_input("Piezas", min_value=0, step=1, value=cant_default_pz_h, placeholder="0")
         
-        if st.form_submit_button("Revisar y Hornear"):
+        # ✅ BOTÓN DE ENVIAR ANCHO
+        if st.form_submit_button("Revisar y Hornear", use_container_width=True):
             val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
             val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
             if prod_hornear and (val_paq_h > 0 or val_pz_h > 0):
@@ -609,10 +626,10 @@ with tab3:
     with st.form("form_coca", clear_on_submit=True):
         prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar...")
         cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
-        # ✅ Nuevo campo de fecha obligatorio para Coca-Cola
         caducidad_coca = st.date_input("Fecha de Caducidad", value=None)
         
-        if st.form_submit_button("Revisar y Registrar"):
+        # ✅ BOTÓN DE ENVIAR ANCHO
+        if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_coca and cant_coca and caducidad_coca:
                 dialog_confirmar_coca(prod_coca, cant_coca, caducidad_coca)
             else:
@@ -623,7 +640,6 @@ with tab3:
     
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # ✅ Agrupamos también por la fecha de caducidad para separar lotes en el inventario
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
     conn.close()
