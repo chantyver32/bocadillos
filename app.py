@@ -395,8 +395,8 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 st.sidebar.divider()
 
 opciones_wa = {
-    
-    "URANO": "522291653665", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
+    "MÉXICO": "521234567890", 
+    "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
     "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
     "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
     "CUAUHTÉMOC": "522291651340", "MARIO MOLINA": "522291780851", "RAFAEL CUERVO": "522291980229",
@@ -446,158 +446,10 @@ tab1, tab2, tab3 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola"])
 with tab1:
     st.header("Registrar Nueva Mercancía")
     
-    tipo_entrada = st.radio("Método de registro de entrada:", ["Manual", "Voz 🎙️"], horizontal=True)
+    tipo_entrada = st.radio("Selecciona el método de captura:", ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], horizontal=True, key="radio_ent")
     
-    if tipo_entrada == "Voz 🎙️":
-        st.caption("Diga el producto y la cantidad (Ej: 'Dos paquetes de cubiletes' o '15 piezas de volován de jamón').")
-        voz_res_ent = speech_to_text(language="es-ES", key="speech_ent")
-        if voz_res_ent:
-            st.session_state.dictado_entrada = voz_res_ent
-            dialog_procesar_voz_entrada()
-    
-    default_prod = st.session_state.get("auto_ent_prod", list(EMPAQUES.keys())[0])
-    idx_prod_ent = list(EMPAQUES.keys()).index(default_prod) if default_prod in EMPAQUES else 0
-    
-    producto = st.selectbox("Selecciona el Producto:", list(EMPAQUES.keys()), index=idx_prod_ent, key="prod_sel")
-    
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        paquetes = st.number_input("Paquetes:", min_value=0, step=1, value=st.session_state.get("auto_ent_paq", 0), key="cant_paq")
-    with col_p2:
-        piezas_sueltas = st.number_input("Piezas sueltas (adicionales):", min_value=0, step=1, value=st.session_state.get("auto_ent_pz", 0), key="cant_piezas")
-        
-    pz_x_paq = EMPAQUES[producto]["piezas_x_paq"]
-    piezas_totales = (paquetes * pz_x_paq) + piezas_sueltas
-    
-    st.info(f"Total a registrar: **{piezas_totales} piezas** ({paquetes} paquetes de {pz_x_paq} pz + {piezas_sueltas} sueltas)")
-    
-    caducidad = st.date_input("Fecha de Caducidad:", value=date.today(), key="cad_ent")
-    
-    if st.button("Registrar Entrada", use_container_width=True):
-        if piezas_totales <= 0:
-            st.error("La cantidad total debe ser mayor a 0.")
-        else:
-            dialog_confirmar_entrada(producto, paquetes, piezas_totales, caducidad)
-            
-    st.divider()
-    st.subheader("Stock Actual")
-    stock = calcular_stock_actual()
-    
-    datos_tabla = []
-    for prod, info in stock.items():
-        linea = EMPAQUES[prod]["categoria"]
-        cant_str = f"{info['paquetes']} paq"
-        if info['piezas_sueltas'] > 0:
-            cant_str += f" + {info['piezas_sueltas']} pz"
-        
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT fecha_caducidad FROM entradas WHERE producto = ? ORDER BY id DESC LIMIT 1", (prod,))
-        res_f = c.fetchone()
-        conn.close()
-        fecha_cad = res_f[0] if res_f else "-"
-        
-        datos_tabla.append({
-            "producto": prod,
-            "linea": linea,
-            "cantidad": cant_str,
-            "fecha": fecha_cad
-        })
-        
-    if st.button("Generar Plantilla de Imagen (Reporte)", use_container_width=True):
-        fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-        img_path = generar_plantilla_bocadillos(datos_tabla, fecha_hoy)
-        st.image(img_path, caption="Plantilla Generada", use_container_width=True)
-        with open(img_path, "rb") as file:
-            st.download_button(
-                label="📥 Descargar Imagen de Reporte",
-                data=file,
-                file_name="reporte_bocadillos.png",
-                mime="image/png",
-                use_container_width=True
-            )
+    if tipo_entrada == "🗣️ Entrada por Voz":
+        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco pie
 
-# ------------------------------------------
-# PESTAÑA 2: HORNEADO (SALIDAS)
-# ------------------------------------------
-with tab2:
-    st.header("Registrar Horneado (Salida)")
-    
-    tipo_horneado = st.radio("Método de registro de horneado:", ["Manual", "Voz 🎙️"], horizontal=True, key="rad_tipo_horn")
-    
-    if tipo_horneado == "Voz 🎙️":
-        st.caption("Diga el producto y la cantidad horneada (Ej: 'Horneé tres paquetes de tutis').")
-        voz_res_horn = speech_to_text(language="es-ES", key="speech_horn")
-        if voz_res_horn:
-            st.session_state.dictado_horneado = voz_res_horn
-            dialog_procesar_voz_horneado()
-            
-    default_prod_h = st.session_state.get("auto_horn_prod", list(EMPAQUES.keys())[0])
-    idx_prod_horn = list(EMPAQUES.keys()).index(default_prod_h) if default_prod_h in EMPAQUES else 0
-    
-    producto_horn = st.selectbox("Producto a Hornear:", list(EMPAQUES.keys()), index=idx_prod_horn, key="hornear_prod")
-    
-    col_h1, col_h2 = st.columns(2)
-    with col_h1:
-        paquetes_horn = st.number_input("Paquetes horneados:", min_value=0, step=1, value=st.session_state.get("auto_horn_paq", 0), key="hornear_cant_paq")
-    with col_h2:
-        piezas_horn_sueltas = st.number_input("Piezas sueltas horneadas:", min_value=0, step=1, value=st.session_state.get("auto_horn_pz", 0), key="hornear_cant_pz")
-        
-    pz_x_paq_h = EMPAQUES[producto_horn]["piezas_x_paq"]
-    piezas_totales_horn = (paquetes_horn * pz_x_paq_h) + piezas_horn_sueltas
-    
-    stock_actual = calcular_stock_actual()
-    disponibles_pz = stock_actual[producto_horn]["piezas_totales"]
-    st.info(f"Stock disponible de {producto_horn}: **{disponibles_pz} piezas** | Total a hornear: **{piezas_totales_horn} piezas**")
-    
-    if st.button("Registrar Horneado", use_container_width=True):
-        if piezas_totales_horn <= 0:
-            st.error("La cantidad debe ser mayor a 0.")
-        else:
-            dialog_confirmar_horneado(producto_horn, paquetes_horn, piezas_totales_horn)
 
-# ------------------------------------------
-# PESTAÑA 3: COCA-COLA
-# ------------------------------------------
-with tab3:
-    st.header("Control de Coca-Cola")
     
-    producto_coca = st.selectbox("Presentación:", ["Coca-Cola 355ml", "Coca-Cola 600ml", "Coca-Cola 1.5L", "Coca-Cola 2L", "Sprite", "Fanta"], key="coca_prod")
-    cantidad_coca = st.number_input("Cantidad de piezas:", min_value=1, step=1, value=10, key="coca_cant")
-    caducidad_coca = st.date_input("Fecha de Caducidad Coca-Cola:", value=date.today(), key="cad_coca")
-    
-    if st.button("Registrar Coca-Cola", use_container_width=True):
-        dialog_confirmar_coca(producto_coca, cantidad_coca, caducidad_coca)
-        
-    st.divider()
-    st.subheader("Inventario Coca-Cola Actual")
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto")
-    registros_coca = c.fetchall()
-    conn.close()
-    
-    if registros_coca:
-        for p, cant, fc in registros_coca:
-            st.write(f"- **{p}**: {cant} piezas (Caducidad: {fc})")
-    else:
-        st.caption("No hay registros de Coca-Cola actualmente.")
-
-# ------------------------------------------
-# COMPARTIR EN WHATSAPP
-# ------------------------------------------
-st.divider()
-st.subheader("📱 Compartir Inventario por WhatsApp")
-
-mensaje_wa = f"Hola, comparto el inventario de la sucursal *{seleccion_wa}* al día de hoy:\n\n"
-stock_ws = calcular_stock_actual()
-for prod, info in stock_ws.items():
-    mensaje_wa += f"• {prod}: {info['paquetes']} paq"
-    if info['piezas_sueltas'] > 0:
-        mensaje_wa += f" + {info['piezas_sueltas']} pz"
-    mensaje_wa += "\n"
-    
-mensaje_codificado = urllib.parse.quote(mensaje_wa)
-link_whatsapp = f"https://wa.me/{numero_whatsapp}?text={mensaje_codificado}"
-
-st.markdown(f'<a href="{link_whatsapp}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 20px; border-radius:5px; font-size:16px; cursor:pointer; width:100%;">💬 Enviar Inventario por WhatsApp</button></a>', unsafe_allow_html=True)
