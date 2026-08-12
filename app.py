@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import urllib.parse
 from datetime import datetime, date
@@ -97,6 +98,34 @@ def generar_imagen_stock(titulo, lineas_texto):
 # ==========================================
 # POP-UPS DE CONFIRMACIÓN (@st.dialog)
 # ==========================================
+@st.dialog("🎙️ Confirmar datos dictados")
+def dialog_procesar_voz(texto_dictado):
+    st.write(f"**El sistema escuchó:** *'{texto_dictado}'*")
+    st.divider()
+    
+    # 1. Extracción básica de Producto
+    prod_encontrado = None
+    for prod in EMPAQUES.keys():
+        if prod.lower() in texto_dictado.lower():
+            prod_encontrado = prod
+            break
+            
+    # 2. Extracción básica de Cantidad
+    numeros = re.findall(r'\d+', texto_dictado)
+    cant_encontrada = int(numeros[0]) if numeros else None
+
+    st.write("Verifica si los datos extraídos son correctos para autocompletar:")
+    
+    idx_prod = list(EMPAQUES.keys()).index(prod_encontrado) if prod_encontrado else None
+    
+    prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod)
+    cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada)
+    
+    if st.button("✅ Autocompletar Formulario Principal"):
+        st.session_state["auto_prod"] = prod_confirmado
+        st.session_state["auto_cant"] = cant_confirmada
+        st.rerun()
+
 @st.dialog("Confirmar Entrada de Mercancía")
 def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
     st.write(f"**Producto:** {producto}")
@@ -223,7 +252,6 @@ opciones_wa = {
     "EMILIANO ZAPATA": "522969628525"
 }
 
-# Configuración predeterminada de sucursal basada en perfil
 lista_tiendas = list(opciones_wa.keys())
 idx_defecto = lista_tiendas.index("COSTA VERDE") if "COSTA VERDE" in lista_tiendas else 0
 
@@ -269,23 +297,57 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.header("Registrar Nueva Mercancía")
     
-    col1, col2 = st.columns([3, 2])
-    with col1:
-        st.write("Completa el formulario o usa la voz:")
-    with col2:
-        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar Entrada", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_entrada')
+    tipo_entrada = st.radio(
+        "Selecciona el método de captura:", 
+        ["✍️ Entrada Manual", "🗣️ Entrada por Voz"], 
+        horizontal=True
+    )
+    
+    if tipo_entrada == "🗣️ Entrada por Voz":
+        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron 5 paquetes de Volován de Jamón')")
+        texto_entrada = speech_to_text(
+            language='es-MX', 
+            start_prompt="🎙️ Toca para Dictar", 
+            stop_prompt="🔴 Grabando...", 
+            use_container_width=True, 
+            just_once=True, 
+            key='stt_entrada'
+        )
+        
         if texto_entrada:
-            st.info(f"Escuchaste: {texto_entrada}")
+            dialog_procesar_voz(texto_entrada)
+
+    idx_default = None
+    if "auto_prod" in st.session_state and st.session_state["auto_prod"] in EMPAQUES:
+        idx_default = list(EMPAQUES.keys()).index(st.session_state["auto_prod"])
+        
+    cant_default = st.session_state.get("auto_cant", None)
 
     with st.form("form_entrada", clear_on_submit=True):
-        prod_sel = st.selectbox("Selecciona Producto", list(EMPAQUES.keys()), index=None, placeholder="Elija un producto...", key="prod_sel")
-        cant_paq = st.number_input("Cantidad de Paquetes recibidos", min_value=1, step=1, value=None, placeholder="0", key="cant_paq")
+        prod_sel = st.selectbox(
+            "Selecciona Producto", 
+            list(EMPAQUES.keys()), 
+            index=idx_default, 
+            placeholder="Elija un producto...", 
+            key="prod_sel"
+        )
+        cant_paq = st.number_input(
+            "Cantidad de Paquetes recibidos", 
+            min_value=1, 
+            step=1, 
+            value=cant_default, 
+            placeholder="0", 
+            key="cant_paq"
+        )
         fecha_cad = st.date_input("Fecha de Caducidad", value=None)
         
         btn_guardar = st.form_submit_button("Revisar y Registrar")
         
         if btn_guardar:
             if prod_sel and cant_paq and fecha_cad:
+                if "auto_prod" in st.session_state: del st.session_state["auto_prod"]
+                if "auto_cant" in st.session_state: del st.session_state["auto_cant"]
+                
                 pz_totales = cant_paq * EMPAQUES[prod_sel]["piezas_x_paq"]
                 dialog_confirmar_entrada(prod_sel, cant_paq, pz_totales, fecha_cad)
             else:
@@ -361,4 +423,4 @@ with tab3:
                 dialog_confirmar_coca(prod_coca, cant_coca, fecha_coca)
             else:
                 st.error("Por favor completa todos los campos.")
-        
+    
