@@ -64,7 +64,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES Y EXTRACCIÓN DE VOZ
 # ==========================================
 def calcular_stock_actual():
     conn = sqlite3.connect(DB_NAME)
@@ -95,36 +95,65 @@ def generar_imagen_stock(titulo, lineas_texto):
     img.save("reporte.png")
     return "reporte.png"
 
+def extraer_datos_voz(texto):
+    texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    
+    # 1. Extraer Producto (ignorando acentos y mayúsculas)
+    prod_encontrado = None
+    for prod in EMPAQUES.keys():
+        prod_norm = prod.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+        if prod_norm in texto_norm:
+            prod_encontrado = prod
+            break
+            
+    # 2. Extraer Cantidad (soporta dígitos y palabras)
+    cant_encontrada = None
+    numeros_digitos = re.findall(r'\d+', texto)
+    if numeros_digitos:
+        cant_encontrada = int(numeros_digitos[0])
+    else:
+        mapa_numeros = {
+            "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, 
+            "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, 
+            "diez": 10, "once": 11, "doce": 12, "trece": 13, "catorce": 14, 
+            "quince": 15, "dieciseis": 16, "veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50
+        }
+        for palabra, valor in mapa_numeros.items():
+            if re.search(rf'\b{palabra}\b', texto_norm):
+                cant_encontrada = valor
+                break
+                
+    return prod_encontrado, cant_encontrada
+
 # ==========================================
 # POP-UPS DE CONFIRMACIÓN (@st.dialog)
 # ==========================================
 @st.dialog("🎙️ Confirmar datos dictados")
-def dialog_procesar_voz(texto_dictado):
+def dialog_procesar_voz():
+    texto_dictado = st.session_state.ultimo_dictado
     st.write(f"**El sistema escuchó:** *'{texto_dictado}'*")
     st.divider()
     
-    # 1. Extracción básica de Producto
-    prod_encontrado = None
-    for prod in EMPAQUES.keys():
-        if prod.lower() in texto_dictado.lower():
-            prod_encontrado = prod
-            break
-            
-    # 2. Extracción básica de Cantidad
-    numeros = re.findall(r'\d+', texto_dictado)
-    cant_encontrada = int(numeros[0]) if numeros else None
+    prod_encontrado, cant_encontrada = extraer_datos_voz(texto_dictado)
 
-    st.write("Verifica si los datos extraídos son correctos para autocompletar:")
+    st.write("Verifica si los datos extraídos son correctos:")
     
     idx_prod = list(EMPAQUES.keys()).index(prod_encontrado) if prod_encontrado else None
     
     prod_confirmado = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx_prod)
     cant_confirmada = st.number_input("Cantidad detectada:", min_value=1, step=1, value=cant_encontrada)
     
-    if st.button("✅ Autocompletar Formulario Principal"):
-        st.session_state["auto_prod"] = prod_confirmado
-        st.session_state["auto_cant"] = cant_confirmada
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Autocompletar"):
+            st.session_state["auto_prod"] = prod_confirmado
+            st.session_state["auto_cant"] = cant_confirmada
+            del st.session_state["ultimo_dictado"] # Limpiamos la memoria para cerrar el dialog
+            st.rerun()
+    with col2:
+        if st.button("❌ Cancelar"):
+            del st.session_state["ultimo_dictado"]
+            st.rerun()
 
 @st.dialog("Confirmar Entrada de Mercancía")
 def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
@@ -304,7 +333,7 @@ with tab1:
     )
     
     if tipo_entrada == "🗣️ Entrada por Voz":
-        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron 5 paquetes de Volován de Jamón')")
+        st.info("💡 Dicta el producto y la cantidad (Ej: 'Llegaron cinco paquetes de Volován de Jamón')")
         texto_entrada = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Toca para Dictar", 
@@ -314,8 +343,14 @@ with tab1:
             key='stt_entrada'
         )
         
+        # Almacenamos en memoria para que el pop-up no desaparezca al recargar
         if texto_entrada:
-            dialog_procesar_voz(texto_entrada)
+            st.session_state.ultimo_dictado = texto_entrada
+            st.rerun()
+
+    # Si hay un dictado en memoria, forzamos a que se abra el dialog
+    if "ultimo_dictado" in st.session_state:
+        dialog_procesar_voz()
 
     idx_default = None
     if "auto_prod" in st.session_state and st.session_state["auto_prod"] in EMPAQUES:
