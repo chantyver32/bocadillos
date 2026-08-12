@@ -3,7 +3,7 @@ import urllib.parse
 from datetime import datetime, date
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import speech_recognition as sr
+from streamlit_mic_recorder import speech_to_text
 
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
@@ -25,6 +25,16 @@ EMPAQUES = {
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # Tabla Usuarios para Login
+    c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                    username TEXT UNIQUE, 
+                    password TEXT
+                )''')
+    # Crear usuario admin por defecto si no existe
+    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
+    
+    # Tablas de Inventario
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
@@ -53,7 +63,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES Y VOZ
+# FUNCIONES AUXILIARES
 # ==========================================
 def calcular_stock_actual():
     conn = sqlite3.connect(DB_NAME)
@@ -76,7 +86,6 @@ def generar_imagen_stock(titulo, lineas_texto):
     img = Image.new('RGB', (600, 40 + len(lineas_texto) * 35 + 40), color=(245, 247, 250))
     draw = ImageDraw.Draw(img)
     draw.rectangle([0, 0, 600, 50], fill=(31, 78, 121))
-    # Requiere fuente por defecto o especificar una, aquí se usa predeterminada
     draw.text((20, 15), titulo, fill=(255, 255, 255))
     y = 70
     for linea in lineas_texto:
@@ -84,23 +93,6 @@ def generar_imagen_stock(titulo, lineas_texto):
         y += 32
     img.save("reporte.png")
     return "reporte.png"
-
-def escuchar_voz():
-    """Función para capturar voz y convertirla a texto"""
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.toast("🎤 Escuchando... habla ahora.")
-        try:
-            audio = r.listen(source, timeout=5)
-            texto = r.recognize_google(audio, language="es-MX")
-            return texto
-        except sr.UnknownValueError:
-            st.error("No se pudo entender el audio.")
-        except sr.RequestError:
-            st.error("Error al conectar con el servicio de reconocimiento.")
-        except Exception as e:
-            st.error(f"Error: {e}")
-    return ""
 
 # ==========================================
 # POP-UPS DE CONFIRMACIÓN (@st.dialog)
@@ -118,7 +110,11 @@ def dialog_confirmar_entrada(producto, paquetes, piezas, caducidad):
                   (producto, paquetes, piezas, str(caducidad), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         conn.close()
-        st.session_state.clear_entrada = True
+        
+        for key in ["prod_sel", "cant_paq"]:
+            if key in st.session_state:
+                del st.session_state[key]
+                
         st.success("Guardado exitosamente.")
         st.rerun()
 
@@ -135,7 +131,11 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
                   (producto, paquetes, piezas, hora_actual))
         conn.commit()
         conn.close()
-        st.session_state.clear_horneado = True
+        
+        for key in ["hornear_prod", "hornear_cant"]:
+            if key in st.session_state:
+                del st.session_state[key]
+                
         st.success("Horneado registrado.")
         st.rerun()
 
@@ -152,20 +152,115 @@ def dialog_confirmar_coca(producto, cantidad, caducidad):
                   (producto, cantidad, str(caducidad), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         conn.close()
-        st.session_state.clear_coca = True
+        
+        for key in ["coca_prod", "coca_cant"]:
+            if key in st.session_state:
+                del st.session_state[key]
+                
         st.success("Guardado exitosamente.")
         st.rerun()
 
 # ==========================================
-# INTERFAZ STREAMLIT
+# SISTEMA DE LOGIN
 # ==========================================
-st.set_page_config(page_title="Control de Stock - Bocadillos", layout="centered")
+st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
+
+def verificar_login():
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
+
+    if not st.session_state.autenticado:
+        st.markdown("### 📦 Control de Stock y Horneado")
+        st.markdown("### Control de Acceso")
+        
+        with st.form("form_login"):
+            usuario_input = st.text_input("👤 Usuario:", key="login_usr")
+            password_input = st.text_input("🔑 Contraseña:", type="password", key="login_pwd")
+            btn_login = st.form_submit_button("Iniciar Sesión", use_container_width=True)
+            
+            if btn_login:
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
+                user = c.fetchone()
+                conn.close()
+                
+                if user:
+                    st.session_state.autenticado = True
+                    st.session_state.usuario_actual = usuario_input.strip()
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+        return False
+    return True
+
+if not verificar_login():
+    st.stop()
+
+# ==========================================
+# BARRA LATERAL (SIDEBAR)
+# ==========================================
+st.sidebar.markdown("### 🏢 Datos de Sesión")
+st.sidebar.caption(f"👤 Conectado como: **{st.session_state.get('usuario_actual', 'Usuario')}**")
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+    st.session_state.autenticado = False
+    if "usuario_actual" in st.session_state:
+        del st.session_state["usuario_actual"]
+    st.rerun()
+
+st.sidebar.divider()
+
+opciones_wa = {
+    "URANO": "522281342454", "COSTA DE ORO": "522292780850", "COSTA VERDE": "522299359597",
+    "DÍAZ MIRÓN": "522291302759", "EJÉRCITO MEXICANO": "522299272107", "PLAZA RÍO": "522299864120",
+    "PLAYAS DEL CONCHAL": "522291794020", "COYOL": "522299398334", "LA PLACITA": "522299208481",
+    "CUAUHTÉMOC": "522291651340", "MARIO MOLINA": "522291780851", "RAFAEL CUERVO": "522291980229",
+    "RÍO MEDIO": "522291005852", "DIVERPLAZA": "522293763180", "BOLÍVAR": "522291002947",
+    "CIRCUNVALACIÓN": "522299393726", "J.B. LOBOS": "522299201956", "YÁÑEZ": "522293764940",
+    "PALACIO DE HIERRO": "522299272100", "CIUDAD INDUSTRIAL": "522299200278", "DONATO CASAS": "522291653833",
+    "LAS VEGAS": "522291932980", "PUENTE MORENO": "522296893999", "CONDESA": "522299863464",
+    "MURILLO VIDAL": "522286886443", "ARAUCARIAS": "522281177133", "ÁVILA CAMACHO": "522288170989",
+    "EMILIANO ZAPATA": "522969628525"
+}
+
+# Configuración predeterminada de sucursal basada en perfil
+lista_tiendas = list(opciones_wa.keys())
+idx_defecto = lista_tiendas.index("COSTA VERDE") if "COSTA VERDE" in lista_tiendas else 0
+
+seleccion_wa = st.sidebar.selectbox("📍 Selecciona la Sucursal", lista_tiendas, index=idx_defecto)
+numero_whatsapp = opciones_wa[seleccion_wa]
+st.sidebar.caption(f"📱 WhatsApp: **{numero_whatsapp}**")
+
+st.sidebar.divider()
+
+if st.session_state.get('usuario_actual', '').lower() == 'admin':
+    with st.sidebar.expander("🚨 Zona de Peligro"):
+        st.warning("¡ATENCIÓN! Esto borrará el inventario completo de la base de datos.")
+        confirmar_reset = st.checkbox("Confirmar borrado de datos", key="check_reset")
+        
+        if st.button("⚠️ EJECUTAR RESET TOTAL", use_container_width=True):
+            if confirmar_reset:
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("DELETE FROM entradas")
+                c.execute("DELETE FROM horneado")
+                c.execute("DELETE FROM cocacola")
+                conn.commit()
+                conn.close()
+                st.sidebar.success("✅ Base de datos limpiada por completo.")
+                st.rerun()
+            else:
+                st.sidebar.error("Debes confirmar seleccionando la casilla.")
+
+# ==========================================
+# INTERFAZ STREAMLIT PRINCIPAL
+# ==========================================
 st.title("📦 Control de Stock y Horneado")
 
 tab1, tab2, tab3 = st.tabs([
-    "📥 Entradas y Caducidades", 
-    "🥐 Registro de Horneado", 
-    "🥤 Caducidades Coca-Cola"
+    "📥 Entradas", 
+    "🥐 Horneado", 
+    "🥤 Coca-Cola"
 ])
 
 # ------------------------------------------
@@ -174,20 +269,13 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.header("Registrar Nueva Mercancía")
     
-    # Manejo de limpieza de estado
-    if "clear_entrada" in st.session_state and st.session_state.clear_entrada:
-        st.session_state.pop("clear_entrada")
-        st.session_state.prod_sel = None
-        st.session_state.cant_paq = None
-    
-    col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns([3, 2])
     with col1:
-        st.write("Completa el formulario o usa el botón de voz.")
+        st.write("Completa el formulario o usa la voz:")
     with col2:
-        if st.button("🎙️ Dictar Entrada"):
-            texto = escuchar_voz()
-            st.info(f"Escuchado: {texto}")
-            # Aquí puedes añadir lógica para extraer "producto" y "cantidad" del texto dictado
+        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar Entrada", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_entrada')
+        if texto_entrada:
+            st.info(f"Escuchaste: {texto_entrada}")
 
     with st.form("form_entrada", clear_on_submit=True):
         prod_sel = st.selectbox("Selecciona Producto", list(EMPAQUES.keys()), index=None, placeholder="Elija un producto...", key="prod_sel")
@@ -209,14 +297,9 @@ with tab1:
 with tab2:
     st.header("Horneado de Mercancía")
 
-    if "clear_horneado" in st.session_state and st.session_state.clear_horneado:
-        st.session_state.pop("clear_horneado")
-        st.session_state.hornear_prod = None
-        st.session_state.hornear_cant = None
-
-    if st.button("🎙️ Dictar Horneado"):
-        texto = escuchar_voz()
-        st.info(f"Escuchado: {texto}")
+    texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar Horneado", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_horneado')
+    if texto_horneado:
+        st.info(f"Escuchaste: {texto_horneado}")
 
     with st.form("form_horneado", clear_on_submit=True):
         prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=None, placeholder="Elija un producto...", key="hornear_prod")
@@ -237,6 +320,24 @@ with tab2:
             else:
                 st.error("Por favor completa los campos para registrar el horneado.")
 
+    st.markdown("---")
+    st.subheader("🖼️ Stock Disponible en Nevera")
+    
+    stock_actual = calcular_stock_actual()
+    lineas_reporte = []
+    
+    for prod, datos in stock_actual.items():
+        lineas_reporte.append(f"• {prod}: {datos['paquetes']} paq ({datos['piezas']} pzs)")
+        
+    path_img = generar_imagen_stock(f"STOCK {seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}", lineas_reporte)
+    
+    st.image(path_img, caption="Reporte actual generado automáticamente")
+    
+    texto_whatsapp = f"Stock en Nevera ({seleccion_wa} - {datetime.now().strftime('%d/%m/%Y %H:%M')}):\n" + "\n".join(lineas_reporte)
+    url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto_whatsapp)}"
+    
+    st.markdown(f"[📲 **Enviar reporte por WhatsApp a {seleccion_wa}**]({url_wa})", unsafe_allow_html=True)
+
 # ------------------------------------------
 # PESTAÑA 3: COCA-COLA
 # ------------------------------------------
@@ -244,14 +345,9 @@ with tab3:
     st.header("Caducidades de Coca-Cola")
     opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
     
-    if "clear_coca" in st.session_state and st.session_state.clear_coca:
-        st.session_state.pop("clear_coca")
-        st.session_state.coca_prod = None
-        st.session_state.coca_cant = None
-
-    if st.button("🎙️ Dictar Coca-Cola"):
-        texto = escuchar_voz()
-        st.info(f"Escuchado: {texto}")
+    texto_coca = speech_to_text(language='es-MX', start_prompt="🎙️ Dictar Coca-Cola", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_coca')
+    if texto_coca:
+        st.info(f"Escuchaste: {texto_coca}")
 
     with st.form("form_coca", clear_on_submit=True):
         prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar formato...", key="coca_prod")
@@ -265,3 +361,4 @@ with tab3:
                 dialog_confirmar_coca(prod_coca, cant_coca, fecha_coca)
             else:
                 st.error("Por favor completa todos los campos.")
+        
