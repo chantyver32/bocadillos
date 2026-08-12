@@ -14,7 +14,6 @@ st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="cent
 
 DB_NAME = "inventario_bocadillos.db"
 
-# ✅ Hojaldra Jamón ahora es categoría "Mixta"
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
     "Tutis": {"categoria": "Dulce", "piezas_x_paq": 27},
@@ -123,17 +122,14 @@ def get_font(names, size):
     return ImageFont.load_default()
 
 def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro):
-    # Fuentes para simular el logo
     font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], 75)
     font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
-    
-    # Dibujar textos centrados en la parte superior
     draw.text((width//2, 60), "Champlitte", fill=color_vino, font=font_champlitte, anchor="mm")
     draw.text((width//2, 110), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
 def generar_plantilla_bocadillos(datos, fecha_str):
     width = 900
-    espacio_logo = 160 # Espacio reservado para el texto del logo
+    espacio_logo = 160 
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -155,7 +151,6 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 15)
     font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 11)
 
-    # ✅ Dibuja el texto del logo en lugar de una imagen
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
@@ -204,7 +199,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
 
 def generar_plantilla_cocacola(datos, fecha_str):
     width = 900
-    espacio_logo = 160 # Espacio reservado para el texto del logo
+    espacio_logo = 160
     header_height = 130
     table_header_height = 45
     row_height = 55
@@ -224,7 +219,6 @@ def generar_plantilla_cocacola(datos, fecha_str):
     font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
 
-    # ✅ Dibuja el texto del logo en lugar de una imagen
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
@@ -234,19 +228,25 @@ def generar_plantilla_cocacola(datos, fecha_str):
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
     
-    col_prod, col_cant = 300, 750
+    # ✅ Se agregaron 3 columnas: Presentación, Piezas y Caducidad
+    col_prod, col_cant, col_cad = 200, 550, 780
 
     draw.text((col_prod, y + 22), "PRESENTACIÓN", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cant, y + 22), "PIEZAS TOTALES", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cant, y + 22), "PIEZAS", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cad, y + 22), "CADUCIDAD", fill=WHITE, font=font_th, anchor="mm")
 
     y += table_header_height
     for item in datos:
         bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
         draw.rectangle([0, y, width, y + row_height], fill=bg_color)
-        draw.line([600, y, 600, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([660, y, 660, y + row_height], fill=LINE_COLOR, width=1)
 
         draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
         draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
+        
+        # ✅ Dibuja la fecha de caducidad en el reporte
+        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -379,17 +379,19 @@ def dialog_confirmar_horneado(producto, paquetes, piezas):
         st.success("Horneado registrado.")
         st.rerun()
 
+# ✅ Se recibe la variable caducidad y se guarda en la base de datos
 @st.dialog("Confirmar Registro Coca-Cola")
-def dialog_confirmar_coca(producto, cantidad):
+def dialog_confirmar_coca(producto, cantidad, caducidad):
     st.write(f"**Presentación:** {producto}")
     st.write(f"**Cantidad:** {cantidad} piezas")
+    st.write(f"**Caducidad:** {caducidad}")
     
     if st.button("✅ Confirmar y Guardar"):
         fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         c.execute("INSERT INTO cocacola (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
-                  (producto, cantidad, fecha_ahora, fecha_ahora, fecha_ahora))
+                  (producto, cantidad, str(caducidad), fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         for key in ["coca_prod", "coca_cant"]:
@@ -607,18 +609,22 @@ with tab3:
     with st.form("form_coca", clear_on_submit=True):
         prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar...")
         cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
+        # ✅ Nuevo campo de fecha obligatorio para Coca-Cola
+        caducidad_coca = st.date_input("Fecha de Caducidad", value=None)
+        
         if st.form_submit_button("Revisar y Registrar"):
-            if prod_coca and cant_coca:
-                dialog_confirmar_coca(prod_coca, cant_coca)
+            if prod_coca and cant_coca and caducidad_coca:
+                dialog_confirmar_coca(prod_coca, cant_coca, caducidad_coca)
             else:
-                st.error("Completa todos los campos.")
+                st.error("Completa todos los campos, incluyendo la caducidad.")
 
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Coca-Cola")
     
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT producto, SUM(cantidad) FROM cocacola GROUP BY producto")
+    # ✅ Agrupamos también por la fecha de caducidad para separar lotes en el inventario
+    c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
     conn.close()
     
@@ -627,11 +633,11 @@ with tab3:
     fecha_mex_coca = get_hora_mexico().strftime('%d %m %Y - %H:%M')
 
     if stock_coca:
-        for prod, total in stock_coca:
-            datos_coca.append({"producto": prod, "cantidad": total})
-            lineas_wa_coca.append(f"🥤 {prod}: {total} piezas")
+        for prod, total, cad in stock_coca:
+            datos_coca.append({"producto": prod, "cantidad": total, "caducidad": cad})
+            lineas_wa_coca.append(f"🥤 {prod}: {total} piezas (Vence: {cad})")
     else:
-        datos_coca.append({"producto": "Sin inventario", "cantidad": 0})
+        datos_coca.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_coca.append("No hay inventario de refrescos.")
 
     path_coca = generar_plantilla_cocacola(datos_coca, fecha_mex_coca)
