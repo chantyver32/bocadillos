@@ -2,23 +2,28 @@ import re
 import sqlite3
 import urllib.parse
 from datetime import datetime, date
+
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
+
 # ==========================================
 # CONFIGURACIÓN GENERAL
 # ==========================================
+
 st.set_page_config(
     page_title="Control de Stock",
     page_icon="📦",
     layout="centered"
 )
 
-# ==========================================
-# CONFIGURACIÓN Y BASE DE DATOS
-# ==========================================
 DB_NAME = "inventario_bocadillos.db"
+
+
+# ==========================================
+# EMPAQUES
+# ==========================================
 
 EMPAQUES = {
     "Cubiletes": {
@@ -54,19 +59,34 @@ EMPAQUES = {
         "piezas_x_paq": 20
     },
     "Hojaldra Jamón": {
-        "categoria": "S",
+        "categoria": "Dulce - Salado",
         "piezas_x_paq": 48
     },
 }
 
 
 # ==========================================
+# FUNCIONES DE FECHA Y HORA
+# ==========================================
+
+def ahora():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def fecha_hoy():
+    return date.today().strftime("%Y-%m-%d")
+
+
+# ==========================================
 # BASE DE DATOS
 # ==========================================
+
 def init_db():
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
+    # USUARIOS
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,10 +96,12 @@ def init_db():
     """)
 
     c.execute("""
-        INSERT OR IGNORE INTO usuarios (username, password)
+        INSERT OR IGNORE INTO usuarios
+        (username, password)
         VALUES ('admin', 'admin')
     """)
 
+    # ENTRADAS
     c.execute("""
         CREATE TABLE IF NOT EXISTS entradas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,6 +113,7 @@ def init_db():
         )
     """)
 
+    # HORNEADO
     c.execute("""
         CREATE TABLE IF NOT EXISTS horneado (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +124,7 @@ def init_db():
         )
     """)
 
+    # COCA COLA
     c.execute("""
         CREATE TABLE IF NOT EXISTS cocacola (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,34 +143,11 @@ init_db()
 
 
 # ==========================================
-# FUNCIONES AUXILIARES
+# STOCK ACTUAL
 # ==========================================
-def obtener_fecha_hora():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def formatear_fecha(fecha_texto):
-    if not fecha_texto:
-        return ""
-
-    try:
-        fecha = datetime.strptime(
-            fecha_texto,
-            "%Y-%m-%d %H:%M:%S"
-        )
-        return fecha.strftime("%d/%m/%Y %H:%M")
-    except:
-        try:
-            fecha = datetime.strptime(
-                fecha_texto,
-                "%Y-%m-%d"
-            )
-            return fecha.strftime("%d/%m/%Y")
-        except:
-            return fecha_texto
-
 
 def calcular_stock_actual():
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
@@ -154,25 +155,19 @@ def calcular_stock_actual():
 
     for prod in EMPAQUES.keys():
 
-        c.execute(
-            """
+        c.execute("""
             SELECT SUM(piezas_totales)
             FROM entradas
             WHERE producto = ?
-            """,
-            (prod,)
-        )
+        """, (prod,))
 
         entradas_pz = c.fetchone()[0] or 0
 
-        c.execute(
-            """
+        c.execute("""
             SELECT SUM(piezas_totales)
             FROM horneado
             WHERE producto = ?
-            """,
-            (prod,)
-        )
+        """, (prod,))
 
         salidas_pz = c.fetchone()[0] or 0
 
@@ -195,8 +190,29 @@ def calcular_stock_actual():
 
 
 # ==========================================
+# LÍNEA DEL PRODUCTO
+# ==========================================
+
+def obtener_linea(producto):
+
+    categoria = EMPAQUES.get(producto, {}).get(
+        "categoria",
+        ""
+    )
+
+    if producto == "Hojaldra Jamón":
+        return "S"
+
+    if "Dulce" in categoria:
+        return "D"
+
+    return "S"
+
+
+# ==========================================
 # GENERAR IMAGEN DEL REPORTE
 # ==========================================
+
 def generar_plantilla_bocadillos(datos, fecha_actualizacion):
 
     width = 900
@@ -228,8 +244,12 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     def get_font(names, size):
 
         for name in names:
+
             try:
-                return ImageFont.truetype(name, size)
+                return ImageFont.truetype(
+                    name,
+                    size
+                )
             except:
                 continue
 
@@ -298,6 +318,10 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
         14
     )
 
+    # ==========================================
+    # ENCABEZADO
+    # ==========================================
+
     draw.text(
         (width // 2, 35),
         "BOCADILLOS",
@@ -330,17 +354,26 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
         anchor="rm"
     )
 
+    # ==========================================
+    # ENCABEZADO TABLA
+    # ==========================================
+
     y = header_height
 
     draw.rectangle(
-        [0, y, width, y + table_header_height],
+        [
+            0,
+            y,
+            width,
+            y + table_header_height
+        ],
         fill=WINE
     )
 
     col_prod = 200
     col_linea = 520
     col_cant = 680
-    col_fecha = 820
+    col_piezas = 820
 
     draw.text(
         (col_prod, y + 22),
@@ -367,8 +400,8 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
     )
 
     draw.text(
-        (col_fecha, y + 22),
-        "FECHA",
+        (col_piezas, y + 22),
+        "PIEZAS",
         fill=WHITE,
         font=font_th,
         anchor="mm"
@@ -376,15 +409,29 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
 
     y += table_header_height
 
+    # ==========================================
+    # FILAS
+    # ==========================================
+
     for i, item in enumerate(datos):
 
-        bg_color = WHITE if i % 2 == 0 else ROW_ALT
+        bg_color = (
+            WHITE
+            if i % 2 == 0
+            else ROW_ALT
+        )
 
         draw.rectangle(
-            [0, y, width, y + row_height],
+            [
+                0,
+                y,
+                width,
+                y + row_height
+            ],
             fill=bg_color
         )
 
+        # Líneas
         draw.line(
             [420, y, 420, y + row_height],
             fill=LINE_COLOR,
@@ -403,47 +450,33 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
             width=1
         )
 
+        # Producto
         draw.text(
-            (30, y + (row_height // 2)),
+            (30, y + row_height // 2),
             str(item.get("producto", "")),
             fill=TEXT_DARK,
             font=font_td,
             anchor="lm"
         )
 
-        linea_texto = str(item.get("linea", ""))
+        # Línea
+        linea = str(item.get("linea", "S"))
 
-        # ==========================================
-        # LÍNEAS
-        # ==========================================
-        if linea_texto == "Dulce":
+        if linea == "D":
             badge_bg = (252, 230, 230)
             badge_text = WINE
-            texto_linea = "LÍNEA D"
-
-        elif linea_texto == "Salado":
+        else:
             badge_bg = WINE
             badge_text = WHITE
-            texto_linea = "LÍNEA S"
-
-        elif linea_texto == "S":
-            badge_bg = WINE_LIGHT
-            badge_text = WHITE
-            texto_linea = "LÍNEA S"
-
-        else:
-            badge_bg = WINE_LIGHT
-            badge_text = WHITE
-            texto_linea = f"LÍNEA {linea_texto[:1].upper()}"
 
         badge_w = 130
         badge_h = 26
 
-        badge_x = col_linea - (badge_w // 2)
+        badge_x = col_linea - badge_w // 2
         badge_y = (
             y
-            + (row_height // 2)
-            - (badge_h // 2)
+            + row_height // 2
+            - badge_h // 2
         )
 
         draw.rounded_rectangle(
@@ -460,18 +493,19 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
         draw.text(
             (
                 col_linea,
-                y + (row_height // 2)
+                y + row_height // 2
             ),
-            texto_linea,
+            f"LÍNEA {linea}",
             fill=badge_text,
             font=font_badge,
             anchor="mm"
         )
 
+        # Cantidad
         draw.text(
             (
                 col_cant,
-                y + (row_height // 2)
+                y + row_height // 2
             ),
             str(item.get("cantidad", "")),
             fill=TEXT_DARK,
@@ -479,36 +513,30 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
             anchor="mm"
         )
 
-        fecha_texto = item.get("fecha", "")
+        # Piezas
+        piezas = item.get("piezas", "-")
 
-        if fecha_texto and fecha_texto != "-":
+        if piezas is None or piezas == "":
+            piezas = "-"
 
-            draw.text(
-                (
-                    col_fecha,
-                    y + (row_height // 2)
-                ),
-                fecha_texto,
-                fill=TEXT_DARK,
-                font=font_td,
-                anchor="mm"
-            )
-
-        else:
-
-            draw.text(
-                (
-                    col_fecha,
-                    y + (row_height // 2)
-                ),
-                "-",
-                fill=TEXT_DARK,
-                font=font_td,
-                anchor="mm"
-            )
+        draw.text(
+            (
+                col_piezas,
+                y + row_height // 2
+            ),
+            str(piezas),
+            fill=TEXT_DARK,
+            font=font_th,
+            anchor="mm"
+        )
 
         draw.line(
-            [0, y + row_height, width, y + row_height],
+            [
+                0,
+                y + row_height,
+                width,
+                y + row_height
+            ],
             fill=LINE_COLOR,
             width=1
         )
@@ -523,10 +551,15 @@ def generar_plantilla_bocadillos(datos, fecha_actualizacion):
 # ==========================================
 # EXTRACCIÓN DE VOZ
 # ==========================================
+
 def extraer_datos_voz(texto):
 
+    if not texto:
+        return None, None, "Paquetes"
+
     texto_norm = (
-        texto.lower()
+        texto
+        .lower()
         .replace("á", "a")
         .replace("é", "e")
         .replace("í", "i")
@@ -539,7 +572,8 @@ def extraer_datos_voz(texto):
     for prod in EMPAQUES.keys():
 
         prod_norm = (
-            prod.lower()
+            prod
+            .lower()
             .replace("á", "a")
             .replace("é", "e")
             .replace("í", "i")
@@ -548,7 +582,6 @@ def extraer_datos_voz(texto):
         )
 
         if prod_norm in texto_norm:
-
             prod_encontrado = prod
             break
 
@@ -568,6 +601,7 @@ def extraer_datos_voz(texto):
     else:
 
         mapa_numeros = {
+
             "un": 1,
             "uno": 1,
             "una": 1,
@@ -599,24 +633,21 @@ def extraer_datos_voz(texto):
                 rf"\b{palabra}\b",
                 texto_norm
             ):
-
                 cant_encontrada = valor
                 break
 
-    unidad_encontrada = None
+    unidad_encontrada = "Paquetes"
 
     if re.search(
         r"\bpieza[s]?\b",
         texto_norm
     ):
-
         unidad_encontrada = "Piezas"
 
     elif re.search(
         r"\bpaquete[s]?\b",
         texto_norm
     ):
-
         unidad_encontrada = "Paquetes"
 
     return (
@@ -627,8 +658,9 @@ def extraer_datos_voz(texto):
 
 
 # ==========================================
-# POP-UP VOZ ENTRADA
+# DIÁLOGO VOZ ENTRADA
 # ==========================================
+
 @st.dialog("🎙️ Confirmar datos de Entrada")
 def dialog_procesar_voz_entrada():
 
@@ -648,45 +680,32 @@ def dialog_procesar_voz_entrada():
 
     productos = list(EMPAQUES.keys())
 
-    opciones_producto = [
-        "Selecciona un producto..."
-    ] + productos
-
-    if prod_encontrado:
-        index_producto = (
-            productos.index(prod_encontrado) + 1
+    if prod_encontrado in productos:
+        idx_prod = productos.index(
+            prod_encontrado
         )
     else:
-        index_producto = 0
+        idx_prod = 0
 
     prod_confirmado = st.selectbox(
         "Producto detectado:",
-        opciones_producto,
-        index=index_producto,
-        key="sel_voz_ent"
+        productos,
+        index=idx_prod,
+        key="voz_prod_ent"
     )
 
     col_u, col_c = st.columns(2)
 
     with col_u:
 
-        opciones_unidad = [
-            "Selecciona unidad...",
-            "Paquetes",
-            "Piezas"
-        ]
-
-        if unidad_encontrada:
-            index_unidad = opciones_unidad.index(
-                unidad_encontrada
-            )
-        else:
-            index_unidad = 0
-
-        unidad_confirmada = st.selectbox(
+        unidad_confirmada = st.radio(
             "Unidad:",
-            opciones_unidad,
-            index=index_unidad,
+            ["Paquetes", "Piezas"],
+            index=(
+                0
+                if unidad_encontrada == "Paquetes"
+                else 1
+            ),
             key="rad_ent"
         )
 
@@ -696,8 +715,11 @@ def dialog_procesar_voz_entrada():
             "Cantidad detectada:",
             min_value=1,
             step=1,
-            value=cant_encontrada,
-            placeholder="Cantidad",
+            value=(
+                cant_encontrada
+                if cant_encontrada
+                else 1
+            ),
             key="num_ent"
         )
 
@@ -710,55 +732,35 @@ def dialog_procesar_voz_entrada():
             use_container_width=True
         ):
 
-            if prod_confirmado == "Selecciona un producto...":
+            st.session_state[
+                "auto_ent_prod"
+            ] = prod_confirmado
 
-                st.error(
-                    "Selecciona un producto."
-                )
+            if unidad_confirmada == "Paquetes":
 
-            elif unidad_confirmada == "Selecciona unidad...":
+                st.session_state[
+                    "auto_ent_paq"
+                ] = cant_confirmada
 
-                st.error(
-                    "Selecciona la unidad."
-                )
-
-            elif cant_confirmada is None:
-
-                st.error(
-                    "Ingresa una cantidad."
-                )
+                st.session_state[
+                    "auto_ent_pz"
+                ] = 0
 
             else:
 
                 st.session_state[
-                    "auto_ent_prod"
-                ] = prod_confirmado
+                    "auto_ent_paq"
+                ] = 0
 
-                if unidad_confirmada == "Paquetes":
+                st.session_state[
+                    "auto_ent_pz"
+                ] = cant_confirmada
 
-                    st.session_state[
-                        "auto_ent_paq"
-                    ] = cant_confirmada
+            del st.session_state[
+                "dictado_entrada"
+            ]
 
-                    st.session_state[
-                        "auto_ent_pz"
-                    ] = None
-
-                else:
-
-                    st.session_state[
-                        "auto_ent_paq"
-                    ] = None
-
-                    st.session_state[
-                        "auto_ent_pz"
-                    ] = cant_confirmada
-
-                del st.session_state[
-                    "dictado_entrada"
-                ]
-
-                st.rerun()
+            st.rerun()
 
     with col2:
 
@@ -775,8 +777,9 @@ def dialog_procesar_voz_entrada():
 
 
 # ==========================================
-# POP-UP VOZ HORNEADO
+# DIÁLOGO VOZ HORNEADO
 # ==========================================
+
 @st.dialog("🎙️ Confirmar datos de Horneado")
 def dialog_procesar_voz_horneado():
 
@@ -796,24 +799,17 @@ def dialog_procesar_voz_horneado():
 
     productos = list(EMPAQUES.keys())
 
-    opciones_producto = [
-        "Selecciona un producto..."
-    ] + productos
-
-    if prod_encontrado:
-
-        index_producto = (
-            productos.index(prod_encontrado) + 1
+    if prod_encontrado in productos:
+        idx_prod = productos.index(
+            prod_encontrado
         )
-
     else:
-
-        index_producto = 0
+        idx_prod = 0
 
     prod_confirmado = st.selectbox(
         "Producto detectado:",
-        opciones_producto,
-        index=index_producto,
+        productos,
+        index=idx_prod,
         key="sel_horn"
     )
 
@@ -821,23 +817,14 @@ def dialog_procesar_voz_horneado():
 
     with col_u:
 
-        opciones_unidad = [
-            "Selecciona unidad...",
-            "Paquetes",
-            "Piezas"
-        ]
-
-        if unidad_encontrada:
-            index_unidad = opciones_unidad.index(
-                unidad_encontrada
-            )
-        else:
-            index_unidad = 0
-
-        unidad_confirmada = st.selectbox(
+        unidad_confirmada = st.radio(
             "Unidad:",
-            opciones_unidad,
-            index=index_unidad,
+            ["Paquetes", "Piezas"],
+            index=(
+                0
+                if unidad_encontrada == "Paquetes"
+                else 1
+            ),
             key="rad_horn"
         )
 
@@ -847,8 +834,11 @@ def dialog_procesar_voz_horneado():
             "Cantidad detectada:",
             min_value=1,
             step=1,
-            value=cant_encontrada,
-            placeholder="Cantidad",
+            value=(
+                cant_encontrada
+                if cant_encontrada
+                else 1
+            ),
             key="num_horn"
         )
 
@@ -861,55 +851,35 @@ def dialog_procesar_voz_horneado():
             use_container_width=True
         ):
 
-            if prod_confirmado == "Selecciona un producto...":
+            st.session_state[
+                "auto_horn_prod"
+            ] = prod_confirmado
 
-                st.error(
-                    "Selecciona un producto."
-                )
+            if unidad_confirmada == "Paquetes":
 
-            elif unidad_confirmada == "Selecciona unidad...":
+                st.session_state[
+                    "auto_horn_paq"
+                ] = cant_confirmada
 
-                st.error(
-                    "Selecciona la unidad."
-                )
-
-            elif cant_confirmada is None:
-
-                st.error(
-                    "Ingresa una cantidad."
-                )
+                st.session_state[
+                    "auto_horn_pz"
+                ] = 0
 
             else:
 
                 st.session_state[
-                    "auto_horn_prod"
-                ] = prod_confirmado
+                    "auto_horn_paq"
+                ] = 0
 
-                if unidad_confirmada == "Paquetes":
+                st.session_state[
+                    "auto_horn_pz"
+                ] = cant_confirmada
 
-                    st.session_state[
-                        "auto_horn_paq"
-                    ] = cant_confirmada
+            del st.session_state[
+                "dictado_horneado"
+            ]
 
-                    st.session_state[
-                        "auto_horn_pz"
-                    ] = None
-
-                else:
-
-                    st.session_state[
-                        "auto_horn_paq"
-                    ] = None
-
-                    st.session_state[
-                        "auto_horn_pz"
-                    ] = cant_confirmada
-
-                del st.session_state[
-                    "dictado_horneado"
-                ]
-
-                st.rerun()
+            st.rerun()
 
     with col2:
 
@@ -928,6 +898,7 @@ def dialog_procesar_voz_horneado():
 # ==========================================
 # CONFIRMAR ENTRADA
 # ==========================================
+
 @st.dialog("Confirmar Entrada de Mercancía")
 def dialog_confirmar_entrada(
     producto,
@@ -935,20 +906,99 @@ def dialog_confirmar_entrada(
     piezas
 ):
 
-    fecha_registro = obtener_fecha_hora()
+    total_piezas = (
+        paquetes
+        * EMPAQUES[producto]["piezas_x_paq"]
+        + piezas
+    )
+
+    fecha_registro = ahora()
 
     st.write(
         f"**Producto:** {producto}"
     )
 
     st.write(
-        f"**Ingreso:** {piezas} piezas en total"
+        f"**Paquetes:** {paquetes}"
     )
 
     st.write(
-        f"**Fecha y hora de registro:** "
-        f"{formatear_fecha(fecha_registro)}"
+        f"**Piezas:** {piezas}"
+    )
+
+    st.write(
+        f"**Total:** {total_piezas} piezas"
+    )
+
+    st.write(
+        f"**Fecha de registro:** {fecha_registro}"
     )
 
     st.info(
-        "La fecha de caducidad se a
+        "La fecha de caducidad se establecerá "
+        "automáticamente con la fecha de registro."
+    )
+
+    if st.button(
+        "✅ Confirmar y Guardar",
+        use_container_width=True
+    ):
+
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+
+        c.execute("""
+            INSERT INTO entradas
+            (
+                producto,
+                paquetes,
+                piezas_totales,
+                fecha_caducidad,
+                fecha_registro
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            producto,
+            paquetes,
+            total_piezas,
+            fecha_registro,
+            fecha_registro
+        ))
+
+        conn.commit()
+        conn.close()
+
+        claves = [
+            "prod_sel",
+            "cant_paq",
+            "cant_piezas",
+            "auto_ent_prod",
+            "auto_ent_paq",
+            "auto_ent_pz"
+        ]
+
+        for key in claves:
+
+            if key in st.session_state:
+                del st.session_state[key]
+
+        st.success(
+            "✅ Entrada guardada exitosamente."
+        )
+
+        st.rerun()
+
+
+# ==========================================
+# CONFIRMAR HORNEADO
+# ==========================================
+
+@st.dialog("Confirmar Horneado")
+def dialog_confirmar_horneado(
+    producto,
+    paquetes,
+    piezas
+):
+
+    total_piezas = (
+      
