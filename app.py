@@ -1,4 +1,5 @@
 import re
+import time
 import sqlite3
 import urllib.parse
 from datetime import datetime
@@ -310,7 +311,9 @@ def dialog_voz_entrada():
             conn.commit()
             conn.close()
             del st.session_state.dictado_entrada
-            st.success("Guardado.")
+            
+            st.toast("Guardado.", icon="✅")
+            time.sleep(1.5)
             st.rerun()
         else:
             st.error("Verifica que haya un producto y al menos 1 cantidad.")
@@ -350,7 +353,9 @@ def dialog_voz_horneado():
                 conn.commit()
                 conn.close()
                 del st.session_state.dictado_horneado
-                st.success("Horneado registrado.")
+                
+                st.toast("Horneado registrado.", icon="✅")
+                time.sleep(1.5)
                 st.rerun()
         else:
             st.error("Verifica que haya un producto y al menos 1 cantidad.")
@@ -372,7 +377,9 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas):
                   (producto, paquetes, piezas, fecha_ahora, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
-        st.success("Guardado exitosamente.")
+        
+        st.toast("Guardado exitosamente.", icon="✅")
+        time.sleep(1.5)
         st.rerun()
 
 @st.dialog("Confirmar Horneado")
@@ -387,7 +394,9 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas):
                   (producto, paquetes, piezas, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
-        st.success("Horneado registrado.")
+        
+        st.toast("Horneado registrado.", icon="✅")
+        time.sleep(1.5)
         st.rerun()
 
 @st.dialog("Confirmar Registro Coca-Cola")
@@ -403,7 +412,9 @@ def dialog_confirmar_coca_manual(producto, cantidad, caducidad):
                   (producto, cantidad, str(caducidad), fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
-        st.success("Guardado exitosamente.")
+        
+        st.toast("Guardado exitosamente.", icon="✅")
+        time.sleep(1.5)
         st.rerun()
 
 # ==========================================
@@ -483,7 +494,9 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
                 c.execute("DELETE FROM cocacola")
                 conn.commit()
                 conn.close()
-                st.sidebar.success("✅ BD limpiada.")
+                
+                st.toast("Base de datos limpiada por completo.", icon="✅")
+                time.sleep(1.5)
                 st.rerun()
 
 # ==========================================
