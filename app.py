@@ -148,13 +148,24 @@ def get_font(names, size):
         except: continue
     return ImageFont.load_default()
 
-def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro):
-    font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], 75)
+def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal=""):
+    # Ajustar tamaño de letra si hay sucursal para que no se salga del margen
+    tamaño_fuente = 55 if sucursal else 75
+    font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], tamaño_fuente)
     font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
-    draw.text((width//2, 60), "Champlitte", fill=color_vino, font=font_champlitte, anchor="mm")
+    
+    # Formatear bonito el nombre de la sucursal (ej. "Costa De Oro" -> "Costa de Oro")
+    texto_sucursal = ""
+    if sucursal:
+        palabras = sucursal.split()
+        texto_sucursal = " " + " ".join([w.capitalize() if w.lower() not in ['de', 'del', 'la', 'las', 'el', 'los'] else w.lower() for w in palabras])
+
+    texto_principal = f"Champlitte{texto_sucursal}"
+    
+    draw.text((width//2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
     draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
-def generar_plantilla_bocadillos(datos, fecha_str):
+def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
     width = 950
     espacio_logo = 175 
     header_height = 130
@@ -174,7 +185,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 14)
     font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 11)
 
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
     draw.text((width//2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
@@ -222,7 +233,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     img.save("reporte_plantilla.png")
     return "reporte_plantilla.png"
 
-def generar_plantilla_resumen(datos, fecha_str):
+def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
     width = 800
     espacio_logo = 175
     header_height = 130
@@ -240,7 +251,7 @@ def generar_plantilla_resumen(datos, fecha_str):
     font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
 
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
     draw.text((width//2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
@@ -272,7 +283,7 @@ def generar_plantilla_resumen(datos, fecha_str):
     img.save(filename)
     return filename
 
-def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN"):
+def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN", sucursal=""):
     width = 900
     espacio_logo = 175
     header_height = 130
@@ -290,7 +301,7 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
     font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
     font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
 
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
     draw.text((width//2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
@@ -324,23 +335,37 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
 
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-    prod_encontrado = None
-    for prod in EMPAQUES.keys():
-        prod_norm = prod.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-        if prod_norm in texto_norm or (prod_norm.endswith('s') and prod_norm[:-1] in texto_norm):
-            prod_encontrado = prod
-            break
-            
+    
+    # 1. Transformar números de texto a dígitos para facilitar el procesamiento
     mapa_numeros = {
         "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, 
         "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, 
         "diez": 10, "once": 11, "doce": 12, "trece": 13, "catorce": 14, 
         "quince": 15, "dieciseis": 16, "veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50
     }
-    
     for palabra in sorted(mapa_numeros.keys(), key=len, reverse=True):
         texto_norm = re.sub(rf'\b{palabra}\b', str(mapa_numeros[palabra]), texto_norm)
         
+    # 2. Detección de producto por alias / coincidencia parcial
+    prod_encontrado = None
+    aliases = {
+        "hojaldra": "Hojaldra Jamón",
+        "volovan de jamon": "Volován de Jamón",
+        "cochinita": "Volován de Cochinita",
+        "picadillo": "Volován de Picadillo",
+        "pierna": "Volován de Pierna",
+        "chorizo": "Chorizo Hojaldrado",
+        "salchicha": "Salchicha Hojaldrada",
+        "cubilete": "Cubiletes",
+        "tuti": "Tutis",
+        "jamon": "Volován de Jamón" # Se evalúa al final para no pisar 'hojaldra'
+    }
+    for alias, prod_real in aliases.items():
+        if alias in texto_norm:
+            prod_encontrado = prod_real
+            break
+
+    # 3. Extracción de cantidades
     paquetes = 0
     match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
     if match_paq: paquetes = int(match_paq.group(1))
@@ -352,8 +377,26 @@ def procesar_texto_voz(texto):
     if paquetes == 0 and piezas == 0:
         match_any = re.search(r'(\d+)', texto_norm)
         if match_any: paquetes = int(match_any.group(1)) 
+
+    # 4. Extracción de fecha (Día y Mes)
+    fecha_detectada = None
+    meses_dict = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+    }
+    # Busca patrones como "15 de agosto", "15 agosto"
+    match_fecha = re.search(r'(\d+)\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)', texto_norm)
+    if match_fecha:
+        dia = int(match_fecha.group(1))
+        mes_str = match_fecha.group(2)
+        mes = meses_dict[mes_str]
+        anio = get_hora_mexico().year
+        try:
+            fecha_detectada = datetime(anio, mes, dia).date()
+        except ValueError:
+            pass # Ignorar si la fecha no es válida (ej. 30 de febrero)
             
-    return prod_encontrado, paquetes, piezas
+    return prod_encontrado, paquetes, piezas, fecha_detectada
 
 def boton_whatsapp_bonito(url, texto):
     html_wa = f"""
@@ -373,7 +416,7 @@ def dialog_voz_entrada():
     texto = st.session_state.dictado_entrada
     st.write(f"**Escuchaste:** *'{texto}'*")
     
-    prod_enc, paq_enc, pz_enc = procesar_texto_voz(texto)
+    prod_enc, paq_enc, pz_enc, fecha_enc = procesar_texto_voz(texto)
     idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
     
     prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
@@ -383,7 +426,8 @@ def dialog_voz_entrada():
     with col2:
         pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
     
-    cad_sel = st.date_input("Fecha de Caducidad:", format="DD/MM/YYYY")
+    # Asigna la fecha detectada si existe, de lo contrario la de hoy por defecto
+    cad_sel = st.date_input("Fecha de Caducidad:", value=fecha_enc, format="DD/MM/YYYY")
         
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
@@ -417,7 +461,7 @@ def dialog_voz_horneado():
     texto = st.session_state.dictado_horneado
     st.write(f"**Escuchaste:** *'{texto}'*")
     
-    prod_enc, paq_enc, pz_enc = procesar_texto_voz(texto)
+    prod_enc, paq_enc, pz_enc, fecha_enc = procesar_texto_voz(texto)
     idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
     
     prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
@@ -428,7 +472,15 @@ def dialog_voz_horneado():
         st.warning(f"No hay stock registrado para {prod_sel}.")
     else:
         st.info("💡 Se sugiere hornear la caja con la caducidad más próxima (PEPS).")
-        cad_sel = st.selectbox("Selecciona la fecha a hornear (Caducidad):", fechas_disp)
+        
+        # Lógica para autoseleccionar la fecha dictada si coincide con el inventario
+        idx_cad = 0
+        if fecha_enc:
+            fecha_enc_str = fecha_enc.strftime("%d/%m/%Y")
+            if fecha_enc_str in fechas_disp:
+                idx_cad = fechas_disp.index(fecha_enc_str)
+                
+        cad_sel = st.selectbox("Selecciona la fecha a hornear (Caducidad):", fechas_disp, index=idx_cad)
         
         col1, col2 = st.columns(2)
         with col1:
@@ -626,7 +678,7 @@ with tab1:
     tipo_entrada = st.radio("Método:", ["✍️ Manual", "🗣️ Voz"], horizontal=True)
     
     if tipo_entrada == "🗣️ Voz":
-        st.info("💡 Dicta ej: 'Llegaron dos paquetes y cinco piezas de tutis'")
+        st.info("💡 Dicta ej: 'Llegaron dos paquetes y cinco piezas de tutis el 15 de agosto'")
         texto_entrada = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Toca para Dictar", 
@@ -670,7 +722,7 @@ with tab2:
     tipo_horneado = st.radio("Método de captura:", ["✍️ Manual", "🗣️ Voz"], horizontal=True, key="r_horn")
     
     if tipo_horneado == "🗣️ Voz":
-        st.info("💡 Dicta ej: 'Hornear tres paquetes y una pieza de Volován de Pierna'")
+        st.info("💡 Dicta ej: 'Hornear tres paquetes de cochinita del 20 de septiembre'")
         texto_horneado = speech_to_text(
             language='es-MX', 
             start_prompt="🎙️ Toca para Dictar", 
@@ -769,13 +821,14 @@ with tab2:
     if not datos_resumen:
         datos_resumen.append({"producto": "Sin inventario", "totales": 0, "prox_horneo": "-"})
         
-    path_img_detalle = generar_plantilla_bocadillos(datos_plantilla, fecha_mex)
-    path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex)
+    path_img_detalle = generar_plantilla_bocadillos(datos_plantilla, fecha_mex, seleccion_wa)
+    path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex, seleccion_wa)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
-    with col2:
+    # Mostrar el esquema visual de Totales por defecto
+    st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
+    
+    # Ocultar el esquema visual de Detalle en un acordeón desplegable
+    with st.expander("👁️ Ver Reporte Detallado por Caja"):
         st.image(path_img_detalle, caption="Reporte Detallado", use_container_width=True)
     
     if seleccion_wa:
@@ -824,7 +877,7 @@ with tab3:
         datos_coca.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_coca.append("No hay inventario de refrescos.")
 
-    path_coca = generar_plantilla_generica(datos_coca, fecha_mex_coca, "COCA-COLA")
+    path_coca = generar_plantilla_generica(datos_coca, fecha_mex_coca, "COCA-COLA", "PRESENTACIÓN", seleccion_wa)
     st.image(path_coca, caption="Reporte de Refrescos", use_container_width=True)
 
     if seleccion_wa:
@@ -885,7 +938,7 @@ with tab4:
         datos_malteadas.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_malteadas.append("No hay inventario de malteadas.")
 
-    path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR")
+    path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR", seleccion_wa)
     st.image(path_malteadas, caption="Reporte de Malteadas", use_container_width=True)
 
     if seleccion_wa:
