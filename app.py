@@ -177,7 +177,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
-    draw.text((width//2, y + 35), "BOCADILLOS", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
     draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
@@ -221,6 +221,56 @@ def generar_plantilla_bocadillos(datos, fecha_str):
 
     img.save("reporte_plantilla.png")
     return "reporte_plantilla.png"
+
+def generar_plantilla_resumen(datos, fecha_str):
+    width = 800
+    espacio_logo = 175
+    header_height = 130
+    table_header_height = 45
+    row_height = 55
+    total_height = espacio_logo + header_height + table_header_height + (len(datos) * row_height) + 40
+
+    img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
+    draw = ImageDraw.Draw(img)
+
+    WINE, TEXT_DARK, WHITE, ROW_ALT, LINE_COLOR = (128, 21, 43), (40, 40, 40), (255, 255, 255), (253, 243, 243), (235, 220, 225) 
+
+    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 42)
+    font_sub = get_font(["DejaVuSans.ttf", "arial.ttf"], 18)
+    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
+    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
+
+    dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
+
+    y = espacio_logo
+    draw.text((width//2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+
+    y += header_height
+    draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
+    
+    col_prod, col_totales, col_cad = 200, 500, 680
+    draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_totales, y + 22), "TOTAL (PIEZAS)", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cad, y + 22), "PRÓXIMO HORNEO", fill=WHITE, font=font_th, anchor="mm")
+
+    y += table_header_height
+    for item in datos:
+        bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
+        draw.rectangle([0, y, width, y + row_height], fill=bg_color)
+        draw.line([380, y, 380, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([580, y, 580, y + row_height], fill=LINE_COLOR, width=1)
+
+        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height//2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+
+        draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
+        y += row_height
+
+    filename = "reporte_resumen.png"
+    img.save(filename)
+    return filename
 
 def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN"):
     width = 900
@@ -338,6 +388,9 @@ def dialog_voz_entrada():
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
             pz_totales = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
+            
+            st.info(f"**Ingreso:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_totales} pz)")
+            
             fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
             cad_str = cad_sel.strftime("%d/%m/%Y")
             
@@ -387,13 +440,14 @@ def dialog_voz_horneado():
             if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
                 pz_a_hornear = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
                 
-                # Verificar que la cantidad no exceda la caducidad seleccionada
                 stock = calcular_stock_detallado()
                 disp_pz = sum([item["piezas_totales"] for item in stock if item["producto"] == prod_sel and item["caducidad"] == cad_sel])
                 
                 if pz_a_hornear > disp_pz:
                     st.error(f"⚠️ Stock insuficiente para esa caducidad. Hay {disp_pz} pz disponibles.")
                 else:
+                    st.info(f"**Horneado:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_a_hornear} pz)")
+                    
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     conn = sqlite3.connect(DB_NAME)
                     c = conn.cursor()
@@ -414,17 +468,19 @@ def dialog_voz_horneado():
         st.rerun()
 
 @st.dialog("Confirmar Entrada de Mercancía")
-def dialog_confirmar_entrada_manual(producto, paquetes, piezas, caducidad):
+def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_totales, caducidad):
     st.write(f"**Producto:** {producto}")
-    st.write(f"**Ingreso:** {piezas} piezas en total")
-    st.write(f"**Caducidad:** {caducidad}")
+    st.write(f"**Ingreso:** {paquetes} paquetes y {piezas_sueltas} piezas sueltas")
+    st.write(f"**Total General:** {piezas_totales} piezas")
+    st.write(f"**Caducidad:** {caducidad.strftime('%d/%m/%Y')}")
+    
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
-                  (producto, paquetes, piezas, cad_str, fecha_ahora, fecha_ahora))
+                  (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -433,16 +489,18 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas, caducidad):
         st.rerun()
 
 @st.dialog("Confirmar Horneado")
-def dialog_confirmar_horneado_manual(producto, paquetes, piezas, caducidad):
+def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_totales, caducidad):
     st.write(f"**Producto a hornear:** {producto}")
-    st.write(f"**Horneado:** {piezas} piezas en total")
+    st.write(f"**A hornear:** {paquetes} paquetes y {piezas_sueltas} piezas sueltas")
+    st.write(f"**Total General:** {piezas_totales} piezas")
     st.write(f"**Caja / Caducidad elegida:** {caducidad}")
+    
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
-                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora, caducidad))
+                  (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
         conn.commit()
         conn.close()
         
@@ -600,7 +658,7 @@ with tab1:
                 val_pz = cant_piezas if cant_piezas is not None else 0
                 if prod_sel and (val_paq > 0 or val_pz > 0) and caducidad_sel:
                     pz_totales = (val_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + val_pz
-                    dialog_confirmar_entrada_manual(prod_sel, val_paq, pz_totales, caducidad_sel)
+                    dialog_confirmar_entrada_manual(prod_sel, val_paq, val_pz, pz_totales, caducidad_sel)
                 else:
                     st.error("Registra al menos 1 paquete/pieza y la fecha de caducidad.")
 
@@ -658,41 +716,67 @@ with tab2:
                             if pz_a_hornear > disp_pz:
                                 st.warning(f"⚠️ Stock insuficiente en la caducidad {cad_hornear}. Solo hay {disp_pz} pz.")
                             else:
-                                dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, pz_a_hornear, cad_hornear)
+                                dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, val_pz_h, pz_a_hornear, cad_hornear)
                         else:
                             st.error("Completa cantidad.")
 
     st.markdown("---")
-    st.subheader("🖼️ Reporte Visual de Stock")
+    st.subheader("🖼️ Reportes Visuales")
     stock_actual = calcular_stock_detallado()
-    datos_plantilla = []
     
+    # Datos para plantilla detallada
+    datos_plantilla = []
     fecha_mex = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
     lineas_wa = []
     
-    for item in stock_actual:
-        if item['piezas_totales'] > 0:
-            cant_texto = f"{item['paquetes']} pq"
-            if item['piezas_sueltas'] > 0:
-                cant_texto += f" + {item['piezas_sueltas']} pz"
-            
-            suma_en_piezas = item['piezas_totales']
-            caducidad = item['caducidad']
-            datos_plantilla.append({
-                "producto": item['producto'], 
-                "linea": EMPAQUES[item['producto']]["categoria"], 
-                "cantidad": cant_texto, 
-                "totales": suma_en_piezas,
-                "caducidad": caducidad
+    # Datos para plantilla resumen (totales)
+    datos_resumen = []
+    
+    for prod in EMPAQUES.keys():
+        stock_prod = [item for item in stock_actual if item['producto'] == prod and item['piezas_totales'] > 0]
+        if stock_prod:
+            total_pz = sum(item['piezas_totales'] for item in stock_prod)
+            try:
+                prox_horneo = min(stock_prod, key=lambda x: datetime.strptime(x['caducidad'], '%d/%m/%Y'))['caducidad']
+            except ValueError:
+                prox_horneo = stock_prod[0]['caducidad']
+                
+            datos_resumen.append({
+                "producto": prod,
+                "totales": total_pz,
+                "prox_horneo": prox_horneo
             })
-            lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {cant_texto} (Total: {suma_en_piezas} pz)")
             
+            for item in stock_prod:
+                cant_texto = f"{item['paquetes']} pq"
+                if item['piezas_sueltas'] > 0:
+                    cant_texto += f" + {item['piezas_sueltas']} pz"
+                
+                suma_en_piezas = item['piezas_totales']
+                caducidad = item['caducidad']
+                datos_plantilla.append({
+                    "producto": item['producto'], 
+                    "linea": EMPAQUES[item['producto']]["categoria"], 
+                    "cantidad": cant_texto, 
+                    "totales": suma_en_piezas,
+                    "caducidad": caducidad
+                })
+                lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {cant_texto} (Total: {suma_en_piezas} pz)")
+    
     if not datos_plantilla:
         datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0, "caducidad": "-"})
         lineas_wa.append("No hay inventario.")
+    if not datos_resumen:
+        datos_resumen.append({"producto": "Sin inventario", "totales": 0, "prox_horneo": "-"})
         
-    path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_mex)
-    st.image(path_img, caption="Reporte generado automáticamente", use_container_width=True)
+    path_img_detalle = generar_plantilla_bocadillos(datos_plantilla, fecha_mex)
+    path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
+    with col2:
+        st.image(path_img_detalle, caption="Reporte Detallado", use_container_width=True)
     
     if seleccion_wa:
         txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa)
