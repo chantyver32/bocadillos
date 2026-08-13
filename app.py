@@ -438,6 +438,8 @@ def verificar_login():
                 if user:
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = usuario_input.strip()
+                    st.toast("¡Bienvenid@!", icon="👋")
+                    time.sleep(1.0)
                     st.rerun()
                 else:
                     st.error("❌ Usuario o contraseña incorrectos.")
@@ -674,3 +676,19 @@ with tab3:
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
     else:
         st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
+
+    st.markdown("---")
+    with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
+        confirmar_reset_coca = st.checkbox("Confirmar borrado de Coca-Cola", key="check_reset_coca")
+        if st.button("⚠️ Borrar Todo el Inventario de Coca-Cola", use_container_width=True):
+            if confirmar_reset_coca:
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("DELETE FROM cocacola")
+                conn.commit()
+                conn.close()
+                st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.warning("Debes marcar la casilla de confirmación primero.")
