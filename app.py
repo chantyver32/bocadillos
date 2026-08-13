@@ -59,9 +59,12 @@ def init_db():
                     paquetes INTEGER,
                     piezas_totales INTEGER,
                     fecha_hora TEXT,
-                    fecha_actualizacion TEXT
+                    fecha_actualizacion TEXT,
+                    fecha_caducidad TEXT
                 )''')
     try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError: pass
+    try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
     except sqlite3.OperationalError: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
@@ -75,6 +78,15 @@ def init_db():
     try: c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
     except sqlite3.OperationalError: pass
 
+    c.execute('''CREATE TABLE IF NOT EXISTS malteadas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto TEXT,
+                    cantidad INTEGER,
+                    fecha_caducidad TEXT,
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
+                )''')
+
     conn.commit()
     conn.close()
 
@@ -83,29 +95,52 @@ init_db()
 # ==========================================
 # FUNCIONES AUXILIARES Y DIBUJO DE IMAGEN
 # ==========================================
-def calcular_stock_actual():
+def calcular_stock_detallado():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    stock = {}
+    
+    c.execute("SELECT producto, fecha_caducidad, SUM(piezas_totales) FROM entradas GROUP BY producto, fecha_caducidad")
+    entradas_data = c.fetchall()
+    
+    c.execute("SELECT producto, fecha_caducidad, SUM(piezas_totales) FROM horneado GROUP BY producto, fecha_caducidad")
+    salidas_data = c.fetchall()
+    
+    salidas_dict = {f"{prod}_{cad}": total or 0 for prod, cad, total in salidas_data}
+    
+    stock_detallado = []
+    
     for prod in EMPAQUES.keys():
-        c.execute("SELECT SUM(piezas_totales) FROM entradas WHERE producto = ?", (prod,))
-        entradas_pz = c.fetchone()[0] or 0
-        c.execute("SELECT SUM(piezas_totales) FROM horneado WHERE producto = ?", (prod,))
-        salidas_pz = c.fetchone()[0] or 0
-        
-        piezas_disp = entradas_pz - salidas_pz
-        pz_x_paq = EMPAQUES[prod]["piezas_x_paq"]
-        
-        paq_disp = piezas_disp // pz_x_paq
-        pz_sueltas = piezas_disp % pz_x_paq
-        
-        stock[prod] = {
-            "paquetes": paq_disp,
-            "piezas_sueltas": pz_sueltas,
-            "piezas_totales": piezas_disp
-        }
+        encontro_stock = False
+        for prod_e, cad_e, total_ent in entradas_data:
+            if prod_e == prod:
+                key = f"{prod}_{cad_e}"
+                total_sal = salidas_dict.get(key, 0)
+                disp = total_ent - total_sal
+                if disp > 0:
+                    encontro_stock = True
+                    pz_x_paq = EMPAQUES[prod]["piezas_x_paq"]
+                    stock_detallado.append({
+                        "producto": prod,
+                        "caducidad": cad_e,
+                        "paquetes": disp // pz_x_paq,
+                        "piezas_sueltas": disp % pz_x_paq,
+                        "piezas_totales": disp
+                    })
+        if not encontro_stock:
+            stock_detallado.append({
+                "producto": prod,
+                "caducidad": "-",
+                "paquetes": 0,
+                "piezas_sueltas": 0,
+                "piezas_totales": 0
+            })
+            
     conn.close()
-    return stock
+    return stock_detallado
+
+def get_fechas_disp(producto):
+    stock = calcular_stock_detallado()
+    return [item["caducidad"] for item in stock if item["producto"] == producto and item["piezas_totales"] > 0]
 
 def get_font(names, size):
     for name in names:
@@ -120,7 +155,7 @@ def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro):
     draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
 def generar_plantilla_bocadillos(datos, fecha_str):
-    width = 900
+    width = 950
     espacio_logo = 175 
     header_height = 130
     table_header_height = 45
@@ -136,7 +171,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 42)
     font_sub = get_font(["DejaVuSans.ttf", "arial.ttf"], 18)
     font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 13)
-    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 15)
+    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 14)
     font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 11)
 
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
@@ -148,34 +183,38 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
     
-    col_prod, col_linea, col_cant, col_totales = 200, 520, 680, 820
+    col_prod, col_linea, col_cant, col_totales, col_cad = 160, 410, 560, 710, 850
     draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
     draw.text((col_linea, y + 22), "CATEGORÍA", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cant, y + 22), "PAQUETE + PIEZAS", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_totales, y + 22), "TOTAL (PIEZAS)", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cant, y + 22), "CANTIDAD", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_totales, y + 22), "TOTAL (PZ)", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_cad, y + 22), "CADUCIDAD", fill=WHITE, font=font_th, anchor="mm")
 
     y += table_header_height
     for item in datos:
         bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
         draw.rectangle([0, y, width, y + row_height], fill=bg_color)
-        draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([600, y, 600, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([750, y, 750, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([320, y, 320, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([490, y, 490, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([640, y, 640, y + row_height], fill=LINE_COLOR, width=1)
+        draw.line([770, y, 770, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((30, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((20, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
 
         linea_texto = str(item.get("linea", ""))
         badge_bg = WINE_LIGHT if "Mixta" in linea_texto else ((252, 230, 230) if "Dulce" in linea_texto else WINE)
         badge_text = WHITE if "Mixta" in linea_texto else (WINE if "Dulce" in linea_texto else WHITE)
 
-        badge_w, badge_h = 130, 26
+        badge_w, badge_h = 110, 24
         badge_x = col_linea - (badge_w//2)
         badge_y = y + (row_height//2) - (badge_h//2)
-        draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=13, fill=badge_bg)
-        draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
+        if linea_texto != "-":
+            draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=12, fill=badge_bg)
+            draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
 
         draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
         draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -183,7 +222,7 @@ def generar_plantilla_bocadillos(datos, fecha_str):
     img.save("reporte_plantilla.png")
     return "reporte_plantilla.png"
 
-def generar_plantilla_cocacola(datos, fecha_str):
+def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN"):
     width = 900
     espacio_logo = 175
     header_height = 130
@@ -204,14 +243,14 @@ def generar_plantilla_cocacola(datos, fecha_str):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK)
 
     y = espacio_logo
-    draw.text((width//2, y + 35), "COCA-COLA", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
     draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
     
     col_prod, col_cant, col_cad = 200, 550, 780
-    draw.text((col_prod, y + 22), "PRESENTACIÓN", fill=WHITE, font=font_th, anchor="mm")
+    draw.text((col_prod, y + 22), col1_nombre, fill=WHITE, font=font_th, anchor="mm")
     draw.text((col_cant, y + 22), "PIEZAS", fill=WHITE, font=font_th, anchor="mm")
     draw.text((col_cad, y + 22), "CADUCIDAD", fill=WHITE, font=font_th, anchor="mm")
 
@@ -229,17 +268,15 @@ def generar_plantilla_cocacola(datos, fecha_str):
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
 
-    img.save("reporte_cocacola.png")
-    return "reporte_cocacola.png"
+    filename = f"reporte_{titulo.lower().replace(' ', '_')}.png"
+    img.save(filename)
+    return filename
 
-# ✅ CEREBRO DE VOZ MEJORADO: Entiende "cubilete", y acepta paquetes y piezas al mismo tiempo.
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-    
     prod_encontrado = None
     for prod in EMPAQUES.keys():
         prod_norm = prod.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-        # Detecta coincidencias exactas o en singular (ej. cubilete -> cubiletes)
         if prod_norm in texto_norm or (prod_norm.endswith('s') and prod_norm[:-1] in texto_norm):
             prod_encontrado = prod
             break
@@ -256,18 +293,15 @@ def procesar_texto_voz(texto):
         
     paquetes = 0
     match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
-    if match_paq:
-        paquetes = int(match_paq.group(1))
+    if match_paq: paquetes = int(match_paq.group(1))
         
     piezas = 0
     match_pz = re.search(r'(\d+)\s*(pieza|piezas|suelta|sueltas|pz)', texto_norm)
-    if match_pz:
-        piezas = int(match_pz.group(1))
+    if match_pz: piezas = int(match_pz.group(1))
         
     if paquetes == 0 and piezas == 0:
         match_any = re.search(r'(\d+)', texto_norm)
-        if match_any:
-            paquetes = int(match_any.group(1)) 
+        if match_any: paquetes = int(match_any.group(1)) 
             
     return prod_encontrado, paquetes, piezas
 
@@ -298,16 +332,19 @@ def dialog_voz_entrada():
         paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
     with col2:
         pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+    
+    cad_sel = st.date_input("Fecha de Caducidad:", format="DD/MM/YYYY")
         
-    # ✅ Guarda directo a la base de datos desde el Pop-up
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
-        if prod_sel and (paq_sel > 0 or pz_sel > 0):
+        if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
             pz_totales = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
-            fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+            fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+            cad_str = cad_sel.strftime("%d/%m/%Y")
+            
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
             c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
-                      (prod_sel, paq_sel, pz_totales, fecha_ahora, fecha_ahora, fecha_ahora))
+                      (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
             conn.commit()
             conn.close()
             del st.session_state.dictado_entrada
@@ -316,7 +353,7 @@ def dialog_voz_entrada():
             time.sleep(1.5)
             st.rerun()
         else:
-            st.error("Verifica que haya un producto y al menos 1 cantidad.")
+            st.error("Verifica que haya un producto, al menos 1 cantidad y fecha de caducidad.")
             
     if st.button("❌ Cancelar", use_container_width=True):
         del st.session_state.dictado_entrada
@@ -331,50 +368,63 @@ def dialog_voz_horneado():
     idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
     
     prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
-    col1, col2 = st.columns(2)
-    with col1:
-        paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
-    with col2:
-        pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+    
+    fechas_disp = get_fechas_disp(prod_sel) if prod_sel else []
+    
+    if not fechas_disp:
+        st.warning(f"No hay stock registrado para {prod_sel}.")
+    else:
+        st.info("💡 Se sugiere hornear la caja con la caducidad más próxima (PEPS).")
+        cad_sel = st.selectbox("Selecciona la fecha a hornear (Caducidad):", fechas_disp)
         
-    if st.button("🔥 Confirmar Horneado", use_container_width=True):
-        if prod_sel and (paq_sel > 0 or pz_sel > 0):
-            pz_a_hornear = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
-            stock_actual = calcular_stock_actual()
-            disp_pz = stock_actual[prod_sel]["piezas_totales"]
-            if pz_a_hornear > disp_pz:
-                st.error(f"⚠️ Stock insuficiente. Hay {disp_pz} pz disponibles.")
-            else:
-                fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
-                conn = sqlite3.connect(DB_NAME)
-                c = conn.cursor()
-                c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
-                          (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora))
-                conn.commit()
-                conn.close()
-                del st.session_state.dictado_horneado
+        col1, col2 = st.columns(2)
+        with col1:
+            paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
+        with col2:
+            pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+            
+        if st.button("🔥 Confirmar Horneado", use_container_width=True):
+            if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
+                pz_a_hornear = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
                 
-                st.toast("Horneado registrado.", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
-        else:
-            st.error("Verifica que haya un producto y al menos 1 cantidad.")
+                # Verificar que la cantidad no exceda la caducidad seleccionada
+                stock = calcular_stock_detallado()
+                disp_pz = sum([item["piezas_totales"] for item in stock if item["producto"] == prod_sel and item["caducidad"] == cad_sel])
+                
+                if pz_a_hornear > disp_pz:
+                    st.error(f"⚠️ Stock insuficiente para esa caducidad. Hay {disp_pz} pz disponibles.")
+                else:
+                    fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                    conn = sqlite3.connect(DB_NAME)
+                    c = conn.cursor()
+                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
+                              (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
+                    conn.commit()
+                    conn.close()
+                    del st.session_state.dictado_horneado
+                    
+                    st.toast("Horneado registrado.", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
+            else:
+                st.error("Verifica cantidades.")
             
     if st.button("❌ Cancelar", use_container_width=True):
         del st.session_state.dictado_horneado
         st.rerun()
 
-# Pop-ups para el modo MANUAL
 @st.dialog("Confirmar Entrada de Mercancía")
-def dialog_confirmar_entrada_manual(producto, paquetes, piezas):
+def dialog_confirmar_entrada_manual(producto, paquetes, piezas, caducidad):
     st.write(f"**Producto:** {producto}")
     st.write(f"**Ingreso:** {piezas} piezas en total")
+    st.write(f"**Caducidad:** {caducidad}")
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
-        fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+        cad_str = caducidad.strftime("%d/%m/%Y")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
-                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora, fecha_ahora))
+                  (producto, paquetes, piezas, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -383,15 +433,16 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas):
         st.rerun()
 
 @st.dialog("Confirmar Horneado")
-def dialog_confirmar_horneado_manual(producto, paquetes, piezas):
+def dialog_confirmar_horneado_manual(producto, paquetes, piezas, caducidad):
     st.write(f"**Producto a hornear:** {producto}")
     st.write(f"**Horneado:** {piezas} piezas en total")
+    st.write(f"**Caja / Caducidad elegida:** {caducidad}")
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
-        fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
-                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora))
+        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
+                  (producto, paquetes, piezas, fecha_ahora, fecha_ahora, caducidad))
         conn.commit()
         conn.close()
         
@@ -399,17 +450,18 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas):
         time.sleep(1.5)
         st.rerun()
 
-@st.dialog("Confirmar Registro Coca-Cola")
-def dialog_confirmar_coca_manual(producto, cantidad, caducidad):
+@st.dialog("Confirmar Registro Refrescos/Malteadas")
+def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
     st.write(f"**Presentación:** {producto}")
     st.write(f"**Cantidad:** {cantidad} piezas")
-    st.write(f"**Caducidad:** {caducidad}")
+    st.write(f"**Caducidad:** {caducidad.strftime('%d/%m/%Y')}")
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
-        fecha_ahora = get_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+        cad_str = caducidad.strftime("%d/%m/%Y")
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        c.execute("INSERT INTO cocacola (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
-                  (producto, cantidad, str(caducidad), fecha_ahora, fecha_ahora))
+        c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
+                  (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
         
@@ -494,6 +546,7 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
                 c.execute("DELETE FROM entradas")
                 c.execute("DELETE FROM horneado")
                 c.execute("DELETE FROM cocacola")
+                c.execute("DELETE FROM malteadas")
                 conn.commit()
                 conn.close()
                 
@@ -505,7 +558,7 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
 # INTERFAZ STREAMLIT PRINCIPAL
 # ==========================================
 st.title("📦 Control de Stock y Horneado")
-tab1, tab2, tab3 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola"])
+tab1, tab2, tab3, tab4 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas"])
 
 # ------------------------------------------
 # PESTAÑA 1: RECEPCIÓN
@@ -540,14 +593,16 @@ with tab1:
             with col_z:
                 cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=None, placeholder="0")
                 
+            caducidad_sel = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
+                
             if st.form_submit_button("Revisar y Registrar", use_container_width=True):
                 val_paq = cant_paq if cant_paq is not None else 0
                 val_pz = cant_piezas if cant_piezas is not None else 0
-                if prod_sel and (val_paq > 0 or val_pz > 0):
+                if prod_sel and (val_paq > 0 or val_pz > 0) and caducidad_sel:
                     pz_totales = (val_paq * EMPAQUES[prod_sel]["piezas_x_paq"]) + val_pz
-                    dialog_confirmar_entrada_manual(prod_sel, val_paq, pz_totales)
+                    dialog_confirmar_entrada_manual(prod_sel, val_paq, pz_totales, caducidad_sel)
                 else:
-                    st.error("Registra al menos 1 paquete o pieza.")
+                    st.error("Registra al menos 1 paquete/pieza y la fecha de caducidad.")
 
 # ------------------------------------------
 # PESTAÑA 2: HORNEADO
@@ -574,48 +629,66 @@ with tab2:
         dialog_voz_horneado()
 
     elif tipo_horneado == "✍️ Manual":
-        with st.form("form_horneado", clear_on_submit=True):
-            prod_hornear = st.selectbox("Producto", list(EMPAQUES.keys()), index=None, placeholder="Elija...")
-            col_hp, col_hz = st.columns(2)
-            with col_hp:
-                cant_hornear_paq = st.number_input("Paquetes", min_value=0, step=1, value=None, placeholder="0")
-            with col_hz:
-                cant_hornear_pz = st.number_input("Piezas", min_value=0, step=1, value=None, placeholder="0")
-            
-            if st.form_submit_button("Revisar y Hornear", use_container_width=True):
-                val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
-                val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
-                if prod_hornear and (val_paq_h > 0 or val_pz_h > 0):
-                    pz_a_hornear = (val_paq_h * EMPAQUES[prod_hornear]["piezas_x_paq"]) + val_pz_h
-                    stock_actual = calcular_stock_actual()
-                    disp_pz = stock_actual[prod_hornear]["piezas_totales"]
-                    if pz_a_hornear > disp_pz:
-                        st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} pz.")
-                    else:
-                        dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, pz_a_hornear)
-                else:
-                    st.error("Completa cantidad.")
+        prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=None, placeholder="Elija...", key="sel_prod_horn")
+        
+        if prod_hornear:
+            fechas_disp = get_fechas_disp(prod_hornear)
+            if not fechas_disp:
+                st.warning(f"No hay inventario registrado para {prod_hornear}")
+            else:
+                st.info("💡 El sistema recomienda hornear las cajas más antiguas primero (Arriba).")
+                with st.form("form_horneado", clear_on_submit=True):
+                    cad_hornear = st.selectbox("Seleccionar Caja/Caducidad", fechas_disp)
+                    col_hp, col_hz = st.columns(2)
+                    with col_hp:
+                        cant_hornear_paq = st.number_input("Paquetes", min_value=0, step=1, value=None, placeholder="0")
+                    with col_hz:
+                        cant_hornear_pz = st.number_input("Piezas", min_value=0, step=1, value=None, placeholder="0")
+                    
+                    if st.form_submit_button("Revisar y Hornear", use_container_width=True):
+                        val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
+                        val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
+                        
+                        if (val_paq_h > 0 or val_pz_h > 0) and cad_hornear:
+                            pz_a_hornear = (val_paq_h * EMPAQUES[prod_hornear]["piezas_x_paq"]) + val_pz_h
+                            
+                            stock = calcular_stock_detallado()
+                            disp_pz = sum([item["piezas_totales"] for item in stock if item["producto"] == prod_hornear and item["caducidad"] == cad_hornear])
+                            
+                            if pz_a_hornear > disp_pz:
+                                st.warning(f"⚠️ Stock insuficiente en la caducidad {cad_hornear}. Solo hay {disp_pz} pz.")
+                            else:
+                                dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, pz_a_hornear, cad_hornear)
+                        else:
+                            st.error("Completa cantidad.")
 
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Stock")
-    stock_actual = calcular_stock_actual()
+    stock_actual = calcular_stock_detallado()
     datos_plantilla = []
     
-    fecha_mex = get_hora_mexico().strftime('%d %m %Y - %H:%M')
+    fecha_mex = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
     lineas_wa = []
     
-    for prod, datos in stock_actual.items():
-        if datos['piezas_totales'] > 0:
-            cant_texto = f"{datos['paquetes']} pq"
-            if datos['piezas_sueltas'] > 0:
-                cant_texto += f" + {datos['piezas_sueltas']} pz"
+    for item in stock_actual:
+        if item['piezas_totales'] > 0:
+            cant_texto = f"{item['paquetes']} pq"
+            if item['piezas_sueltas'] > 0:
+                cant_texto += f" + {item['piezas_sueltas']} pz"
             
-            suma_en_piezas = datos['piezas_totales'] 
-            datos_plantilla.append({"producto": prod, "linea": EMPAQUES[prod]["categoria"], "cantidad": cant_texto, "totales": suma_en_piezas})
-            lineas_wa.append(f"📦 {prod}: {cant_texto} (Total: {suma_en_piezas} pz)")
+            suma_en_piezas = item['piezas_totales']
+            caducidad = item['caducidad']
+            datos_plantilla.append({
+                "producto": item['producto'], 
+                "linea": EMPAQUES[item['producto']]["categoria"], 
+                "cantidad": cant_texto, 
+                "totales": suma_en_piezas,
+                "caducidad": caducidad
+            })
+            lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {cant_texto} (Total: {suma_en_piezas} pz)")
             
     if not datos_plantilla:
-        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0})
+        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0, "caducidad": "-"})
         lineas_wa.append("No hay inventario.")
         
     path_img = generar_plantilla_bocadillos(datos_plantilla, fecha_mex)
@@ -638,11 +711,11 @@ with tab3:
     with st.form("form_coca", clear_on_submit=True):
         prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar...")
         cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
-        caducidad_coca = st.date_input("Fecha de Caducidad", value=None)
+        caducidad_coca = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
         
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_coca and cant_coca and caducidad_coca:
-                dialog_confirmar_coca_manual(prod_coca, cant_coca, caducidad_coca)
+                dialog_confirmar_generico_manual(prod_coca, cant_coca, caducidad_coca, "cocacola")
             else:
                 st.error("Completa todos los campos, incluyendo la caducidad.")
 
@@ -657,7 +730,7 @@ with tab3:
     
     datos_coca = []
     lineas_wa_coca = []
-    fecha_mex_coca = get_hora_mexico().strftime('%d %m %Y - %H:%M')
+    fecha_mex_coca = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
 
     if stock_coca:
         for prod, total, cad in stock_coca:
@@ -667,15 +740,13 @@ with tab3:
         datos_coca.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_coca.append("No hay inventario de refrescos.")
 
-    path_coca = generar_plantilla_cocacola(datos_coca, fecha_mex_coca)
+    path_coca = generar_plantilla_generica(datos_coca, fecha_mex_coca, "COCA-COLA")
     st.image(path_coca, caption="Reporte de Refrescos", use_container_width=True)
 
     if seleccion_wa:
         txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):\n" + "\n".join(lineas_wa_coca)
         url_wa_coca = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_coca)}"
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
-    else:
-        st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
 
     st.markdown("---")
     with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
@@ -690,5 +761,64 @@ with tab3:
                 st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
+
+# ------------------------------------------
+# PESTAÑA 4: MALTEADAS
+# ------------------------------------------
+with tab4:
+    st.header("Inventario de Malteadas")
+    opciones_malteadas = ["Fresa", "Vainilla", "Chocolate"]
+    
+    with st.form("form_malteadas", clear_on_submit=True):
+        prod_malteadas = st.selectbox("Sabor", opciones_malteadas, index=None, placeholder="Seleccionar...")
+        cant_malteadas = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
+        caducidad_malteadas = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
+        
+        if st.form_submit_button("Revisar y Registrar", use_container_width=True):
+            if prod_malteadas and cant_malteadas and caducidad_malteadas:
+                dialog_confirmar_generico_manual(prod_malteadas, cant_malteadas, caducidad_malteadas, "malteadas")
             else:
-                st.warning("Debes marcar la casilla de confirmación primero.")
+                st.error("Completa todos los campos, incluyendo la caducidad.")
+
+    st.markdown("---")
+    st.subheader("🖼️ Reporte Visual de Malteadas")
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
+    stock_malteadas = c.fetchall()
+    conn.close()
+    
+    datos_malteadas = []
+    lineas_wa_malteadas = []
+    fecha_mex_malteadas = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
+
+    if stock_malteadas:
+        for prod, total, cad in stock_malteadas:
+            datos_malteadas.append({"producto": f"Malteada de {prod}", "cantidad": total, "caducidad": cad})
+            lineas_wa_malteadas.append(f"🥛 Malteada de {prod}: {total} piezas (Vence: {cad})")
+    else:
+        datos_malteadas.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
+        lineas_wa_malteadas.append("No hay inventario de malteadas.")
+
+    path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR")
+    st.image(path_malteadas, caption="Reporte de Malteadas", use_container_width=True)
+
+    if seleccion_wa:
+        txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):\n" + "\n".join(lineas_wa_malteadas)
+        url_wa_malteadas = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_malteadas)}"
+        boton_whatsapp_bonito(url_wa_malteadas, f"Enviar Malteadas a {seleccion_wa}")
+
+    st.markdown("---")
+    with st.expander("🗑️ Reiniciar Registro de Malteadas"):
+        confirmar_reset_malteadas = st.checkbox("Confirmar borrado de Malteadas", key="check_reset_malteadas")
+        if st.button("⚠️ Borrar Todo el Inventario de Malteadas", use_container_width=True):
+            if confirmar_reset_malteadas:
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("DELETE FROM malteadas")
+                conn.commit()
+                conn.close()
+                st.toast("Inventario de Malteadas limpiado.", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
