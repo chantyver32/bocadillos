@@ -718,6 +718,53 @@ with tab1:
                     dialog_confirmar_entrada_manual(prod_sel, val_paq, val_pz, pz_totales, caducidad_sel)
                 else:
                     st.error("Registra al menos 1 paquete/pieza y la fecha de caducidad.")
+    
+    st.markdown("---")
+    with st.expander("✏️ Editar Registro de Entradas"):
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM entradas")
+        regs = c.fetchall()
+        
+        if regs:
+            opciones = {f"ID: {r[0]} | {r[1]} | Totales: {r[3]} | Vence: {r[4]}": r for r in regs}
+            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_ent_sel")
+            
+            if seleccion:
+                r_id, r_prod, r_paq, r_tot, r_cad = opciones[seleccion]
+                pz_x_paq = EMPAQUES.get(r_prod, {}).get("piezas_x_paq", 1)
+                r_pz_sueltas = r_tot - (r_paq * pz_x_paq)
+                
+                with st.form(f"form_edit_ent_{r_id}"):
+                    idx_p = list(EMPAQUES.keys()).index(r_prod) if r_prod in EMPAQUES else 0
+                    e_prod = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_p)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        e_paq = st.number_input("Paquetes", min_value=0, value=r_paq, step=1)
+                    with col2:
+                        e_pz = st.number_input("Piezas sueltas", min_value=0, value=r_pz_sueltas, step=1)
+                    
+                    try:
+                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
+                    except:
+                        fecha_obj = get_hora_mexico().date()
+                        
+                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
+                    
+                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                        nuevo_tot = (e_paq * EMPAQUES[e_prod]["piezas_x_paq"]) + e_pz
+                        nueva_cad = e_cad.strftime("%d/%m/%Y")
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (e_prod, e_paq, nuevo_tot, nueva_cad, f_act, r_id))
+                        conn.commit()
+                        st.toast("Registro actualizado.", icon="✅")
+                        time.sleep(1.5)
+                        st.rerun()
+        else:
+            st.info("No hay registros en Entradas.")
+        conn.close()
 
 # ------------------------------------------
 # PESTAÑA 2: HORNEADO
@@ -842,6 +889,53 @@ with tab2:
         boton_whatsapp_bonito(url_wa, f"Enviar Reporte a {seleccion_wa}")
     else:
         st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
+        
+    st.markdown("---")
+    with st.expander("✏️ Editar Registro de Horneado"):
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM horneado")
+        regs = c.fetchall()
+        
+        if regs:
+            opciones = {f"ID: {r[0]} | {r[1]} | Totales: {r[3]} | Vence: {r[4]}": r for r in regs}
+            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_horn_sel")
+            
+            if seleccion:
+                r_id, r_prod, r_paq, r_tot, r_cad = opciones[seleccion]
+                pz_x_paq = EMPAQUES.get(r_prod, {}).get("piezas_x_paq", 1)
+                r_pz_sueltas = r_tot - (r_paq * pz_x_paq)
+                
+                with st.form(f"form_edit_horn_{r_id}"):
+                    idx_p = list(EMPAQUES.keys()).index(r_prod) if r_prod in EMPAQUES else 0
+                    e_prod = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_p)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        e_paq = st.number_input("Paquetes", min_value=0, value=r_paq, step=1)
+                    with col2:
+                        e_pz = st.number_input("Piezas sueltas", min_value=0, value=r_pz_sueltas, step=1)
+                    
+                    try:
+                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date() if r_cad else get_hora_mexico().date()
+                    except:
+                        fecha_obj = get_hora_mexico().date()
+                        
+                    e_cad = st.date_input("Fecha de Caducidad (Caja)", value=fecha_obj, format="DD/MM/YYYY")
+                    
+                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                        nuevo_tot = (e_paq * EMPAQUES[e_prod]["piezas_x_paq"]) + e_pz
+                        nueva_cad = e_cad.strftime("%d/%m/%Y")
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (e_prod, e_paq, nuevo_tot, nueva_cad, f_act, r_id))
+                        conn.commit()
+                        st.toast("Registro actualizado.", icon="✅")
+                        time.sleep(1.5)
+                        st.rerun()
+        else:
+            st.info("No hay registros en Horneado.")
+        conn.close()
 
 # ------------------------------------------
 # PESTAÑA 3: COCA-COLA
@@ -903,6 +997,46 @@ with tab3:
                 st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
+                
+    st.markdown("---")
+    with st.expander("✏️ Editar Registro de Coca-Cola"):
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT id, producto, cantidad, fecha_caducidad FROM cocacola")
+        regs = c.fetchall()
+        
+        if regs:
+            opciones = {f"ID: {r[0]} | {r[1]} | Cantidad: {r[2]} | Vence: {r[3]}": r for r in regs}
+            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_coca_sel")
+            
+            if seleccion:
+                r_id, r_prod, r_cant, r_cad = opciones[seleccion]
+                
+                with st.form(f"form_edit_coca_{r_id}"):
+                    idx_c = opciones_coca.index(r_prod) if r_prod in opciones_coca else 0
+                    e_prod = st.selectbox("Presentación", opciones_coca, index=idx_c)
+                    e_cant = st.number_input("Piezas", min_value=0, value=r_cant, step=1)
+                    
+                    try:
+                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
+                    except:
+                        fecha_obj = get_hora_mexico().date()
+                        
+                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
+                    
+                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                        nueva_cad = e_cad.strftime("%d/%m/%Y")
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (e_prod, e_cant, nueva_cad, f_act, r_id))
+                        conn.commit()
+                        st.toast("Registro actualizado.", icon="✅")
+                        time.sleep(1.5)
+                        st.rerun()
+        else:
+            st.info("No hay registros en Coca-Cola.")
+        conn.close()
 
 # ------------------------------------------
 # PESTAÑA 4: MALTEADAS
@@ -964,3 +1098,43 @@ with tab4:
                 st.toast("Inventario de Malteadas limpiado.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
+                
+    st.markdown("---")
+    with st.expander("✏️ Editar Registro de Malteadas"):
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT id, producto, cantidad, fecha_caducidad FROM malteadas")
+        regs = c.fetchall()
+        
+        if regs:
+            opciones = {f"ID: {r[0]} | {r[1]} | Cantidad: {r[2]} | Vence: {r[3]}": r for r in regs}
+            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_malt_sel")
+            
+            if seleccion:
+                r_id, r_prod, r_cant, r_cad = opciones[seleccion]
+                
+                with st.form(f"form_edit_malt_{r_id}"):
+                    idx_m = opciones_malteadas.index(r_prod) if r_prod in opciones_malteadas else 0
+                    e_prod = st.selectbox("Sabor", opciones_malteadas, index=idx_m)
+                    e_cant = st.number_input("Piezas", min_value=0, value=r_cant, step=1)
+                    
+                    try:
+                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
+                    except:
+                        fecha_obj = get_hora_mexico().date()
+                        
+                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
+                    
+                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
+                        nueva_cad = e_cad.strftime("%d/%m/%Y")
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (e_prod, e_cant, nueva_cad, f_act, r_id))
+                        conn.commit()
+                        st.toast("Registro actualizado.", icon="✅")
+                        time.sleep(1.5)
+                        st.rerun()
+        else:
+            st.info("No hay registros en Malteadas.")
+        conn.close()
