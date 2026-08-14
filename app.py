@@ -4,6 +4,7 @@ import sqlite3
 import urllib.parse
 from datetime import datetime
 import pytz
+import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
@@ -141,10 +142,7 @@ def calcular_stock_detallado():
 def get_fechas_disp(producto):
     stock = calcular_stock_detallado()
     fechas = [item["caducidad"] for item in stock if item["producto"] == producto and item["piezas_totales"] > 0]
-    
-    # Ordenar las fechas cronológicamente (de la más antigua a la más nueva)
     fechas.sort(key=lambda date_str: datetime.strptime(date_str, '%d/%m/%Y'))
-    
     return fechas
 
 def get_font(names, size):
@@ -154,12 +152,10 @@ def get_font(names, size):
     return ImageFont.load_default()
 
 def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal=""):
-    # Ajustar tamaño de letra si hay sucursal para que no se salga del margen
     tamaño_fuente = 55 if sucursal else 75
     font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], tamaño_fuente)
     font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
     
-    # Formatear bonito el nombre de la sucursal (ej. "Costa De Oro" -> "Costa de Oro")
     texto_sucursal = ""
     if sucursal:
         palabras = sucursal.split()
@@ -341,7 +337,6 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
     
-    # 1. Transformar números de texto a dígitos para facilitar el procesamiento
     mapa_numeros = {
         "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, 
         "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, 
@@ -351,7 +346,6 @@ def procesar_texto_voz(texto):
     for palabra in sorted(mapa_numeros.keys(), key=len, reverse=True):
         texto_norm = re.sub(rf'\b{palabra}\b', str(mapa_numeros[palabra]), texto_norm)
         
-    # 2. Detección de producto por alias / coincidencia parcial
     prod_encontrado = None
     aliases = {
         "hojaldra": "Hojaldra Jamón",
@@ -363,14 +357,13 @@ def procesar_texto_voz(texto):
         "salchicha": "Salchicha Hojaldrada",
         "cubilete": "Cubiletes",
         "tuti": "Tutis",
-        "jamon": "Volován de Jamón" # Se evalúa al final para no pisar 'hojaldra'
+        "jamon": "Volován de Jamón"
     }
     for alias, prod_real in aliases.items():
         if alias in texto_norm:
             prod_encontrado = prod_real
             break
 
-    # 3. Extracción de cantidades
     paquetes = 0
     match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
     if match_paq: paquetes = int(match_paq.group(1))
@@ -383,13 +376,11 @@ def procesar_texto_voz(texto):
         match_any = re.search(r'(\d+)', texto_norm)
         if match_any: paquetes = int(match_any.group(1)) 
 
-    # 4. Extracción de fecha (Día y Mes)
     fecha_detectada = None
     meses_dict = {
         "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
         "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
     }
-    # Busca patrones como "15 de agosto", "15 agosto"
     match_fecha = re.search(r'(\d+)\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)', texto_norm)
     if match_fecha:
         dia = int(match_fecha.group(1))
@@ -399,7 +390,7 @@ def procesar_texto_voz(texto):
         try:
             fecha_detectada = datetime(anio, mes, dia).date()
         except ValueError:
-            pass # Ignorar si la fecha no es válida (ej. 30 de febrero)
+            pass 
             
     return prod_encontrado, paquetes, piezas, fecha_detectada
 
@@ -414,7 +405,7 @@ def boton_whatsapp_bonito(url, texto):
     st.markdown(html_wa, unsafe_allow_html=True)
 
 # ==========================================
-# POP-UPS DE CONFIRMACIÓN DIRECTA (1 SOLO PASO)
+# POP-UPS DE CONFIRMACIÓN Y DIRECCIONAMIENTO
 # ==========================================
 @st.dialog("🎙️ Revisar y Guardar Dictado (Entrada)")
 def dialog_voz_entrada():
@@ -431,7 +422,6 @@ def dialog_voz_entrada():
     with col2:
         pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
     
-    # Asigna la fecha detectada si existe, de lo contrario la de hoy por defecto
     cad_sel = st.date_input("Fecha de Caducidad:", value=fecha_enc, format="DD/MM/YYYY")
         
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
@@ -478,7 +468,6 @@ def dialog_voz_horneado():
     else:
         st.info("💡 Se sugiere hornear la caja con la caducidad más próxima (PEPS).")
         
-        # Lógica para autoseleccionar la fecha dictada si coincide con el inventario
         idx_cad = 0
         if fecha_enc:
             fecha_enc_str = fecha_enc.strftime("%d/%m/%Y")
@@ -585,11 +574,13 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
         st.rerun()
 
 # ==========================================
-# SISTEMA DE LOGIN
+# SISTEMA DE LOGIN Y NAVEGACIÓN
 # ==========================================
 def verificar_login():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
+    if "show_nav_dialog" not in st.session_state:
+        st.session_state.show_nav_dialog = False
 
     if not st.session_state.autenticado:
         st.markdown("### 📦 Control de Stock")
@@ -605,8 +596,9 @@ def verificar_login():
                 if user:
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = usuario_input.strip()
+                    st.session_state.show_nav_dialog = True
                     st.toast("¡Bienvenid@!", icon="👋")
-                    time.sleep(1.0)
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("❌ Usuario o contraseña incorrectos.")
@@ -614,6 +606,22 @@ def verificar_login():
     return True
 
 if not verificar_login():
+    st.stop()
+
+# Pop-up Inicial de Acción
+if st.session_state.get("show_nav_dialog", False):
+    @st.dialog("👋 ¿Qué acción vas a realizar?")
+    def inicio_rapido_dialog():
+        st.write("Selecciona la pestaña a la que deseas ir:")
+        if st.button("📥 Registrar Entrada de Bocadillos", use_container_width=True):
+            st.session_state.menu_radio = "📥 Entradas"
+            st.session_state.show_nav_dialog = False
+            st.rerun()
+        if st.button("🥐 Hornear Bocadillos", use_container_width=True):
+            st.session_state.menu_radio = "🥐 Horneado"
+            st.session_state.show_nav_dialog = False
+            st.rerun()
+    inicio_rapido_dialog()
     st.stop()
 
 # ==========================================
@@ -670,15 +678,20 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
                 st.rerun()
 
 # ==========================================
-# INTERFAZ STREAMLIT PRINCIPAL
+# INTERFAZ STREAMLIT PRINCIPAL (SISTEMA DE PESTAÑAS)
 # ==========================================
 st.title("📦 Control de Stock y Horneado")
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas"])
+
+if "menu_radio" not in st.session_state:
+    st.session_state.menu_radio = "📥 Entradas"
+
+opciones_menu = ["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas"]
+seccion = st.radio("Navegación", opciones_menu, horizontal=True, key="menu_radio", label_visibility="collapsed")
 
 # ------------------------------------------
-# PESTAÑA 1: RECEPCIÓN
+# SECCIÓN 1: RECEPCIÓN
 # ------------------------------------------
-with tab1:
+if seccion == "📥 Entradas":
     st.header("Registrar Nueva Mercancía")
     tipo_entrada = st.radio("Método:", ["✍️ Manual", "🗣️ Voz"], horizontal=True)
     
@@ -720,56 +733,60 @@ with tab1:
                     st.error("Registra al menos 1 paquete/pieza y la fecha de caducidad.")
     
     st.markdown("---")
-    with st.expander("✏️ Editar Registro de Entradas"):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM entradas")
-        regs = c.fetchall()
+    st.subheader("✏️ Edición Rápida (Entradas)")
+    st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
+    
+    conn = sqlite3.connect(DB_NAME)
+    df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM entradas", conn)
+    
+    if not df_ent.empty:
+        df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
+        df_mostrar = df_ent[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad']]
         
-        if regs:
-            opciones = {f"ID: {r[0]} | {r[1]} | Totales: {r[3]} | Vence: {r[4]}": r for r in regs}
-            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_ent_sel")
-            
-            if seleccion:
-                r_id, r_prod, r_paq, r_tot, r_cad = opciones[seleccion]
-                pz_x_paq = EMPAQUES.get(r_prod, {}).get("piezas_x_paq", 1)
-                r_pz_sueltas = r_tot - (r_paq * pz_x_paq)
-                
-                with st.form(f"form_edit_ent_{r_id}"):
-                    idx_p = list(EMPAQUES.keys()).index(r_prod) if r_prod in EMPAQUES else 0
-                    e_prod = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_p)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        e_paq = st.number_input("Paquetes", min_value=0, value=r_paq, step=1)
-                    with col2:
-                        e_pz = st.number_input("Piezas sueltas", min_value=0, value=r_pz_sueltas, step=1)
+        edited_df = st.data_editor(
+            df_mostrar,
+            column_config={
+                "id": None, 
+                "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
+                "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
+                "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
+                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="edit_entradas"
+        )
+        
+        if st.button("💾 Guardar Cambios en Entradas", type="primary", use_container_width=True):
+            c = conn.cursor()
+            cambios = 0
+            for i in range(len(edited_df)):
+                row = edited_df.iloc[i]
+                orig = df_mostrar.iloc[i]
+                if not row.equals(orig):
+                    prod = row['producto']
+                    pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                    nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
+                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     
-                    try:
-                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
-                    except:
-                        fecha_obj = get_hora_mexico().date()
-                        
-                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
-                    
-                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
-                        nuevo_tot = (e_paq * EMPAQUES[e_prod]["piezas_x_paq"]) + e_pz
-                        nueva_cad = e_cad.strftime("%d/%m/%Y")
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
-                        c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (e_prod, e_paq, nuevo_tot, nueva_cad, f_act, r_id))
-                        conn.commit()
-                        st.toast("Registro actualizado.", icon="✅")
-                        time.sleep(1.5)
-                        st.rerun()
-        else:
-            st.info("No hay registros en Entradas.")
-        conn.close()
+                    c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                              (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                    cambios += 1
+            if cambios > 0:
+                conn.commit()
+                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.info("No se detectaron cambios en la tabla.")
+    else:
+        st.info("No hay registros de Entradas para editar.")
+    conn.close()
 
 # ------------------------------------------
-# PESTAÑA 2: HORNEADO
+# SECCIÓN 2: HORNEADO
 # ------------------------------------------
-with tab2:
+elif seccion == "🥐 Horneado":
     st.header("Horneado de Mercancía")
     tipo_horneado = st.radio("Método de captura:", ["✍️ Manual", "🗣️ Voz"], horizontal=True, key="r_horn")
     
@@ -828,12 +845,9 @@ with tab2:
     st.subheader("🖼️ Reportes Visuales")
     stock_actual = calcular_stock_detallado()
     
-    # Datos para plantilla detallada
     datos_plantilla = []
     fecha_mex = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
     lineas_wa = []
-    
-    # Datos para plantilla resumen (totales)
     datos_resumen = []
     
     for prod in EMPAQUES.keys():
@@ -876,10 +890,8 @@ with tab2:
     path_img_detalle = generar_plantilla_bocadillos(datos_plantilla, fecha_mex, seleccion_wa)
     path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex, seleccion_wa)
     
-    # Mostrar el esquema visual de Totales por defecto
     st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
     
-    # Ocultar el esquema visual de Detalle en un acordeón desplegable
     with st.expander("👁️ Ver Reporte Detallado por Caja"):
         st.image(path_img_detalle, caption="Reporte Detallado", use_container_width=True)
     
@@ -891,56 +903,60 @@ with tab2:
         st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
         
     st.markdown("---")
-    with st.expander("✏️ Editar Registro de Horneado"):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM horneado")
-        regs = c.fetchall()
+    st.subheader("✏️ Edición Rápida (Historial de Horneado)")
+    st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
+    
+    conn = sqlite3.connect(DB_NAME)
+    df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM horneado", conn)
+    
+    if not df_horn.empty:
+        df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
+        df_mostrar_h = df_horn[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad']]
         
-        if regs:
-            opciones = {f"ID: {r[0]} | {r[1]} | Totales: {r[3]} | Vence: {r[4]}": r for r in regs}
-            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_horn_sel")
-            
-            if seleccion:
-                r_id, r_prod, r_paq, r_tot, r_cad = opciones[seleccion]
-                pz_x_paq = EMPAQUES.get(r_prod, {}).get("piezas_x_paq", 1)
-                r_pz_sueltas = r_tot - (r_paq * pz_x_paq)
-                
-                with st.form(f"form_edit_horn_{r_id}"):
-                    idx_p = list(EMPAQUES.keys()).index(r_prod) if r_prod in EMPAQUES else 0
-                    e_prod = st.selectbox("Producto", list(EMPAQUES.keys()), index=idx_p)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        e_paq = st.number_input("Paquetes", min_value=0, value=r_paq, step=1)
-                    with col2:
-                        e_pz = st.number_input("Piezas sueltas", min_value=0, value=r_pz_sueltas, step=1)
+        edited_df_h = st.data_editor(
+            df_mostrar_h,
+            column_config={
+                "id": None, 
+                "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
+                "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
+                "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
+                "fecha_caducidad": st.column_config.TextColumn("Caducidad de Caja", required=True)
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="edit_horneado"
+        )
+        
+        if st.button("💾 Guardar Cambios de Horneado", type="primary", use_container_width=True):
+            c = conn.cursor()
+            cambios = 0
+            for i in range(len(edited_df_h)):
+                row = edited_df_h.iloc[i]
+                orig = df_mostrar_h.iloc[i]
+                if not row.equals(orig):
+                    prod = row['producto']
+                    pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                    nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
+                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     
-                    try:
-                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date() if r_cad else get_hora_mexico().date()
-                    except:
-                        fecha_obj = get_hora_mexico().date()
-                        
-                    e_cad = st.date_input("Fecha de Caducidad (Caja)", value=fecha_obj, format="DD/MM/YYYY")
-                    
-                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
-                        nuevo_tot = (e_paq * EMPAQUES[e_prod]["piezas_x_paq"]) + e_pz
-                        nueva_cad = e_cad.strftime("%d/%m/%Y")
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
-                        c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (e_prod, e_paq, nuevo_tot, nueva_cad, f_act, r_id))
-                        conn.commit()
-                        st.toast("Registro actualizado.", icon="✅")
-                        time.sleep(1.5)
-                        st.rerun()
-        else:
-            st.info("No hay registros en Horneado.")
-        conn.close()
+                    c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                              (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                    cambios += 1
+            if cambios > 0:
+                conn.commit()
+                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.info("No se detectaron cambios en la tabla.")
+    else:
+        st.info("No hay registros en Horneado.")
+    conn.close()
 
 # ------------------------------------------
-# PESTAÑA 3: COCA-COLA
+# SECCIÓN 3: COCA-COLA
 # ------------------------------------------
-with tab3:
+elif seccion == "🥤 Coca-Cola":
     st.header("Inventario de Coca-Cola")
     opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
     
@@ -962,7 +978,6 @@ with tab3:
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
-    conn.close()
     
     datos_coca = []
     lineas_wa_coca = []
@@ -985,63 +1000,61 @@ with tab3:
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
 
     st.markdown("---")
+    st.subheader("✏️ Edición Rápida (Coca-Cola)")
+    
+    df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad FROM cocacola", conn)
+    
+    if not df_coca.empty:
+        edited_df_c = st.data_editor(
+            df_coca,
+            column_config={
+                "id": None, 
+                "producto": st.column_config.SelectboxColumn("Presentación", options=opciones_coca, required=True),
+                "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
+                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="edit_coca"
+        )
+        
+        if st.button("💾 Guardar Cambios (Coca-Cola)", type="primary", use_container_width=True):
+            c = conn.cursor()
+            cambios = 0
+            for i in range(len(edited_df_c)):
+                row = edited_df_c.iloc[i]
+                orig = df_coca.iloc[i]
+                if not row.equals(orig):
+                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                    c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                              (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
+                    cambios += 1
+            if cambios > 0:
+                conn.commit()
+                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.info("No se detectaron cambios en la tabla.")
+    else:
+        st.info("No hay registros en Coca-Cola.")
+
     with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
         confirmar_reset_coca = st.checkbox("Confirmar borrado de Coca-Cola", key="check_reset_coca")
         if st.button("⚠️ Borrar Todo el Inventario de Coca-Cola", use_container_width=True):
             if confirmar_reset_coca:
-                conn = sqlite3.connect(DB_NAME)
                 c = conn.cursor()
                 c.execute("DELETE FROM cocacola")
                 conn.commit()
-                conn.close()
                 st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
-                
-    st.markdown("---")
-    with st.expander("✏️ Editar Registro de Coca-Cola"):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT id, producto, cantidad, fecha_caducidad FROM cocacola")
-        regs = c.fetchall()
-        
-        if regs:
-            opciones = {f"ID: {r[0]} | {r[1]} | Cantidad: {r[2]} | Vence: {r[3]}": r for r in regs}
-            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_coca_sel")
-            
-            if seleccion:
-                r_id, r_prod, r_cant, r_cad = opciones[seleccion]
-                
-                with st.form(f"form_edit_coca_{r_id}"):
-                    idx_c = opciones_coca.index(r_prod) if r_prod in opciones_coca else 0
-                    e_prod = st.selectbox("Presentación", opciones_coca, index=idx_c)
-                    e_cant = st.number_input("Piezas", min_value=0, value=r_cant, step=1)
-                    
-                    try:
-                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
-                    except:
-                        fecha_obj = get_hora_mexico().date()
-                        
-                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
-                    
-                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
-                        nueva_cad = e_cad.strftime("%d/%m/%Y")
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
-                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (e_prod, e_cant, nueva_cad, f_act, r_id))
-                        conn.commit()
-                        st.toast("Registro actualizado.", icon="✅")
-                        time.sleep(1.5)
-                        st.rerun()
-        else:
-            st.info("No hay registros en Coca-Cola.")
-        conn.close()
+    conn.close()
 
 # ------------------------------------------
-# PESTAÑA 4: MALTEADAS
+# SECCIÓN 4: MALTEADAS
 # ------------------------------------------
-with tab4:
+elif seccion == "🥛 Malteadas":
     st.header("Inventario de Malteadas")
     opciones_malteadas = ["Fresa", "Vainilla", "Chocolate"]
     
@@ -1063,7 +1076,6 @@ with tab4:
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_malteadas = c.fetchall()
-    conn.close()
     
     datos_malteadas = []
     lineas_wa_malteadas = []
@@ -1086,55 +1098,53 @@ with tab4:
         boton_whatsapp_bonito(url_wa_malteadas, f"Enviar Malteadas a {seleccion_wa}")
 
     st.markdown("---")
+    st.subheader("✏️ Edición Rápida (Malteadas)")
+    
+    df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad FROM malteadas", conn)
+    
+    if not df_malt.empty:
+        edited_df_m = st.data_editor(
+            df_malt,
+            column_config={
+                "id": None, 
+                "producto": st.column_config.SelectboxColumn("Sabor", options=opciones_malteadas, required=True),
+                "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
+                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="edit_malt"
+        )
+        
+        if st.button("💾 Guardar Cambios (Malteadas)", type="primary", use_container_width=True):
+            c = conn.cursor()
+            cambios = 0
+            for i in range(len(edited_df_m)):
+                row = edited_df_m.iloc[i]
+                orig = df_malt.iloc[i]
+                if not row.equals(orig):
+                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                    c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                              (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
+                    cambios += 1
+            if cambios > 0:
+                conn.commit()
+                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.info("No se detectaron cambios en la tabla.")
+    else:
+        st.info("No hay registros en Malteadas.")
+
     with st.expander("🗑️ Reiniciar Registro de Malteadas"):
         confirmar_reset_malteadas = st.checkbox("Confirmar borrado de Malteadas", key="check_reset_malteadas")
         if st.button("⚠️ Borrar Todo el Inventario de Malteadas", use_container_width=True):
             if confirmar_reset_malteadas:
-                conn = sqlite3.connect(DB_NAME)
                 c = conn.cursor()
                 c.execute("DELETE FROM malteadas")
                 conn.commit()
-                conn.close()
                 st.toast("Inventario de Malteadas limpiado.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
-                
-    st.markdown("---")
-    with st.expander("✏️ Editar Registro de Malteadas"):
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT id, producto, cantidad, fecha_caducidad FROM malteadas")
-        regs = c.fetchall()
-        
-        if regs:
-            opciones = {f"ID: {r[0]} | {r[1]} | Cantidad: {r[2]} | Vence: {r[3]}": r for r in regs}
-            seleccion = st.selectbox("Selecciona el registro a editar:", list(opciones.keys()), key="edit_malt_sel")
-            
-            if seleccion:
-                r_id, r_prod, r_cant, r_cad = opciones[seleccion]
-                
-                with st.form(f"form_edit_malt_{r_id}"):
-                    idx_m = opciones_malteadas.index(r_prod) if r_prod in opciones_malteadas else 0
-                    e_prod = st.selectbox("Sabor", opciones_malteadas, index=idx_m)
-                    e_cant = st.number_input("Piezas", min_value=0, value=r_cant, step=1)
-                    
-                    try:
-                        fecha_obj = datetime.strptime(r_cad, "%d/%m/%Y").date()
-                    except:
-                        fecha_obj = get_hora_mexico().date()
-                        
-                    e_cad = st.date_input("Fecha de Caducidad", value=fecha_obj, format="DD/MM/YYYY")
-                    
-                    if st.form_submit_button("💾 Guardar Cambios", use_container_width=True):
-                        nueva_cad = e_cad.strftime("%d/%m/%Y")
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
-                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (e_prod, e_cant, nueva_cad, f_act, r_id))
-                        conn.commit()
-                        st.toast("Registro actualizado.", icon="✅")
-                        time.sleep(1.5)
-                        st.rerun()
-        else:
-            st.info("No hay registros en Malteadas.")
-        conn.close()
+    conn.close()
