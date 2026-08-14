@@ -140,7 +140,12 @@ def calcular_stock_detallado():
 
 def get_fechas_disp(producto):
     stock = calcular_stock_detallado()
-    return [item["caducidad"] for item in stock if item["producto"] == producto and item["piezas_totales"] > 0]
+    fechas = [item["caducidad"] for item in stock if item["producto"] == producto and item["piezas_totales"] > 0]
+    
+    # Ordenar las fechas cronológicamente (de la más antigua a la más nueva)
+    fechas.sort(key=lambda date_str: datetime.strptime(date_str, '%d/%m/%Y'))
+    
+    return fechas
 
 def get_font(names, size):
     for name in names:
