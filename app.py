@@ -42,6 +42,11 @@ def init_db():
                 )''')
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
     
+    # Usuario urano sin permisos de edición (contraseña minúscula)
+    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('urano', 'urano')")
+    # Forzamos la actualización por si ya se había creado con mayúscula en la corrida anterior
+    c.execute("UPDATE usuarios SET password = 'urano' WHERE username = 'urano'")
+    
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     producto TEXT,
@@ -732,56 +737,59 @@ if seccion == "📥 Entradas":
                 else:
                     st.error("Registra al menos 1 paquete/pieza y la fecha de caducidad.")
     
-    st.markdown("---")
-    st.subheader("✏️ Edición Rápida (Entradas)")
-    st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
-    
-    conn = sqlite3.connect(DB_NAME)
-    df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM entradas", conn)
-    
-    if not df_ent.empty:
-        df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
-        df_mostrar = df_ent[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad']]
+    # Bloque protegido de edición rápida
+    if st.session_state.get('usuario_actual', '').lower() != 'urano':
+        st.markdown("---")
+        st.subheader("✏️ Edición Rápida (Entradas)")
+        st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
         
-        edited_df = st.data_editor(
-            df_mostrar,
-            column_config={
-                "id": None, 
-                "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
-                "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
-                "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
-                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
-            },
-            hide_index=True,
-            use_container_width=True,
-            key="edit_entradas"
-        )
+        conn = sqlite3.connect(DB_NAME)
+        df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
         
-        if st.button("💾 Guardar Cambios en Entradas", type="primary", use_container_width=True):
-            c = conn.cursor()
-            cambios = 0
-            for i in range(len(edited_df)):
-                row = edited_df.iloc[i]
-                orig = df_mostrar.iloc[i]
-                if not row.equals(orig):
-                    prod = row['producto']
-                    pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
-                    nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
-                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    
-                    c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                              (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
-                    cambios += 1
-            if cambios > 0:
-                conn.commit()
-                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
-            else:
-                st.info("No se detectaron cambios en la tabla.")
-    else:
-        st.info("No hay registros de Entradas para editar.")
-    conn.close()
+        if not df_ent.empty:
+            df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
+            df_mostrar = df_ent[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad', 'fecha_actualizacion']]
+            
+            edited_df = st.data_editor(
+                df_mostrar,
+                column_config={
+                    "id": None, 
+                    "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
+                    "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
+                    "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
+                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
+                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="edit_entradas"
+            )
+            
+            if st.button("💾 Guardar Cambios en Entradas", type="primary", use_container_width=True):
+                c = conn.cursor()
+                cambios = 0
+                for i in range(len(edited_df)):
+                    row = edited_df.iloc[i]
+                    orig = df_mostrar.iloc[i]
+                    if not row.equals(orig):
+                        prod = row['producto']
+                        pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                        nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                        cambios += 1
+                if cambios > 0:
+                    conn.commit()
+                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
+                else:
+                    st.info("No se detectaron cambios en la tabla.")
+        else:
+            st.info("No hay registros de Entradas para editar.")
+        conn.close()
 
 # ------------------------------------------
 # SECCIÓN 2: HORNEADO
@@ -902,56 +910,59 @@ elif seccion == "🥐 Horneado":
     else:
         st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
         
-    st.markdown("---")
-    st.subheader("✏️ Edición Rápida (Historial de Horneado)")
-    st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
-    
-    conn = sqlite3.connect(DB_NAME)
-    df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad FROM horneado", conn)
-    
-    if not df_horn.empty:
-        df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
-        df_mostrar_h = df_horn[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad']]
+    # Bloque protegido de edición rápida
+    if st.session_state.get('usuario_actual', '').lower() != 'urano':
+        st.markdown("---")
+        st.subheader("✏️ Edición Rápida (Historial de Horneado)")
+        st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
         
-        edited_df_h = st.data_editor(
-            df_mostrar_h,
-            column_config={
-                "id": None, 
-                "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
-                "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
-                "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
-                "fecha_caducidad": st.column_config.TextColumn("Caducidad de Caja", required=True)
-            },
-            hide_index=True,
-            use_container_width=True,
-            key="edit_horneado"
-        )
+        conn = sqlite3.connect(DB_NAME)
+        df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
         
-        if st.button("💾 Guardar Cambios de Horneado", type="primary", use_container_width=True):
-            c = conn.cursor()
-            cambios = 0
-            for i in range(len(edited_df_h)):
-                row = edited_df_h.iloc[i]
-                orig = df_mostrar_h.iloc[i]
-                if not row.equals(orig):
-                    prod = row['producto']
-                    pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
-                    nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
-                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    
-                    c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                              (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
-                    cambios += 1
-            if cambios > 0:
-                conn.commit()
-                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
-            else:
-                st.info("No se detectaron cambios en la tabla.")
-    else:
-        st.info("No hay registros en Horneado.")
-    conn.close()
+        if not df_horn.empty:
+            df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
+            df_mostrar_h = df_horn[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad', 'fecha_actualizacion']]
+            
+            edited_df_h = st.data_editor(
+                df_mostrar_h,
+                column_config={
+                    "id": None, 
+                    "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
+                    "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
+                    "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
+                    "fecha_caducidad": st.column_config.TextColumn("Caducidad de Caja", required=True),
+                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="edit_horneado"
+            )
+            
+            if st.button("💾 Guardar Cambios de Horneado", type="primary", use_container_width=True):
+                c = conn.cursor()
+                cambios = 0
+                for i in range(len(edited_df_h)):
+                    row = edited_df_h.iloc[i]
+                    orig = df_mostrar_h.iloc[i]
+                    if not row.equals(orig):
+                        prod = row['producto']
+                        pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                        nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        
+                        c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                        cambios += 1
+                if cambios > 0:
+                    conn.commit()
+                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
+                else:
+                    st.info("No se detectaron cambios en la tabla.")
+        else:
+            st.info("No hay registros en Horneado.")
+        conn.close()
 
 # ------------------------------------------
 # SECCIÓN 3: COCA-COLA
@@ -999,56 +1010,59 @@ elif seccion == "🥤 Coca-Cola":
         url_wa_coca = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_coca)}"
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
 
-    st.markdown("---")
-    st.subheader("✏️ Edición Rápida (Coca-Cola)")
-    
-    df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad FROM cocacola", conn)
-    
-    if not df_coca.empty:
-        edited_df_c = st.data_editor(
-            df_coca,
-            column_config={
-                "id": None, 
-                "producto": st.column_config.SelectboxColumn("Presentación", options=opciones_coca, required=True),
-                "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
-                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
-            },
-            hide_index=True,
-            use_container_width=True,
-            key="edit_coca"
-        )
+    # Bloque protegido de edición rápida
+    if st.session_state.get('usuario_actual', '').lower() != 'urano':
+        st.markdown("---")
+        st.subheader("✏️ Edición Rápida (Coca-Cola)")
         
-        if st.button("💾 Guardar Cambios (Coca-Cola)", type="primary", use_container_width=True):
-            c = conn.cursor()
-            cambios = 0
-            for i in range(len(edited_df_c)):
-                row = edited_df_c.iloc[i]
-                orig = df_coca.iloc[i]
-                if not row.equals(orig):
-                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                              (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
-                    cambios += 1
-            if cambios > 0:
-                conn.commit()
-                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
-            else:
-                st.info("No se detectaron cambios en la tabla.")
-    else:
-        st.info("No hay registros en Coca-Cola.")
-
-    with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
-        confirmar_reset_coca = st.checkbox("Confirmar borrado de Coca-Cola", key="check_reset_coca")
-        if st.button("⚠️ Borrar Todo el Inventario de Coca-Cola", use_container_width=True):
-            if confirmar_reset_coca:
+        df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM cocacola", conn)
+        
+        if not df_coca.empty:
+            edited_df_c = st.data_editor(
+                df_coca,
+                column_config={
+                    "id": None, 
+                    "producto": st.column_config.SelectboxColumn("Presentación", options=opciones_coca, required=True),
+                    "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
+                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
+                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="edit_coca"
+            )
+            
+            if st.button("💾 Guardar Cambios (Coca-Cola)", type="primary", use_container_width=True):
                 c = conn.cursor()
-                c.execute("DELETE FROM cocacola")
-                conn.commit()
-                st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
+                cambios = 0
+                for i in range(len(edited_df_c)):
+                    row = edited_df_c.iloc[i]
+                    orig = df_coca.iloc[i]
+                    if not row.equals(orig):
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
+                        cambios += 1
+                if cambios > 0:
+                    conn.commit()
+                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
+                else:
+                    st.info("No se detectaron cambios en la tabla.")
+        else:
+            st.info("No hay registros en Coca-Cola.")
+
+        with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
+            confirmar_reset_coca = st.checkbox("Confirmar borrado de Coca-Cola", key="check_reset_coca")
+            if st.button("⚠️ Borrar Todo el Inventario de Coca-Cola", use_container_width=True):
+                if confirmar_reset_coca:
+                    c = conn.cursor()
+                    c.execute("DELETE FROM cocacola")
+                    conn.commit()
+                    st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
     conn.close()
 
 # ------------------------------------------
@@ -1097,54 +1111,57 @@ elif seccion == "🥛 Malteadas":
         url_wa_malteadas = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_malteadas)}"
         boton_whatsapp_bonito(url_wa_malteadas, f"Enviar Malteadas a {seleccion_wa}")
 
-    st.markdown("---")
-    st.subheader("✏️ Edición Rápida (Malteadas)")
-    
-    df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad FROM malteadas", conn)
-    
-    if not df_malt.empty:
-        edited_df_m = st.data_editor(
-            df_malt,
-            column_config={
-                "id": None, 
-                "producto": st.column_config.SelectboxColumn("Sabor", options=opciones_malteadas, required=True),
-                "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
-                "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True)
-            },
-            hide_index=True,
-            use_container_width=True,
-            key="edit_malt"
-        )
+    # Bloque protegido de edición rápida
+    if st.session_state.get('usuario_actual', '').lower() != 'urano':
+        st.markdown("---")
+        st.subheader("✏️ Edición Rápida (Malteadas)")
         
-        if st.button("💾 Guardar Cambios (Malteadas)", type="primary", use_container_width=True):
-            c = conn.cursor()
-            cambios = 0
-            for i in range(len(edited_df_m)):
-                row = edited_df_m.iloc[i]
-                orig = df_malt.iloc[i]
-                if not row.equals(orig):
-                    f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                              (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
-                    cambios += 1
-            if cambios > 0:
-                conn.commit()
-                st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
-            else:
-                st.info("No se detectaron cambios en la tabla.")
-    else:
-        st.info("No hay registros en Malteadas.")
-
-    with st.expander("🗑️ Reiniciar Registro de Malteadas"):
-        confirmar_reset_malteadas = st.checkbox("Confirmar borrado de Malteadas", key="check_reset_malteadas")
-        if st.button("⚠️ Borrar Todo el Inventario de Malteadas", use_container_width=True):
-            if confirmar_reset_malteadas:
+        df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM malteadas", conn)
+        
+        if not df_malt.empty:
+            edited_df_m = st.data_editor(
+                df_malt,
+                column_config={
+                    "id": None, 
+                    "producto": st.column_config.SelectboxColumn("Sabor", options=opciones_malteadas, required=True),
+                    "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
+                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
+                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="edit_malt"
+            )
+            
+            if st.button("💾 Guardar Cambios (Malteadas)", type="primary", use_container_width=True):
                 c = conn.cursor()
-                c.execute("DELETE FROM malteadas")
-                conn.commit()
-                st.toast("Inventario de Malteadas limpiado.", icon="✅")
-                time.sleep(1.5)
-                st.rerun()
+                cambios = 0
+                for i in range(len(edited_df_m)):
+                    row = edited_df_m.iloc[i]
+                    orig = df_malt.iloc[i]
+                    if not row.equals(orig):
+                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
+                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                                  (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
+                        cambios += 1
+                if cambios > 0:
+                    conn.commit()
+                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
+                else:
+                    st.info("No se detectaron cambios en la tabla.")
+        else:
+            st.info("No hay registros en Malteadas.")
+
+        with st.expander("🗑️ Reiniciar Registro de Malteadas"):
+            confirmar_reset_malteadas = st.checkbox("Confirmar borrado de Malteadas", key="check_reset_malteadas")
+            if st.button("⚠️ Borrar Todo el Inventario de Malteadas", use_container_width=True):
+                if confirmar_reset_malteadas:
+                    c = conn.cursor()
+                    c.execute("DELETE FROM malteadas")
+                    conn.commit()
+                    st.toast("Inventario de Malteadas limpiado.", icon="✅")
+                    time.sleep(1.5)
+                    st.rerun()
     conn.close()
