@@ -2,7 +2,7 @@ import re
 import time
 import sqlite3
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import pandas as pd
 import streamlit as st
@@ -690,7 +690,7 @@ st.title("📦 Control de Stock y Horneado")
 if "menu_radio" not in st.session_state:
     st.session_state.menu_radio = "📥 Entradas"
 
-opciones_menu = ["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas"]
+opciones_menu = ["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas", "📄 Formatos"]
 seccion = st.radio("Navegación", opciones_menu, horizontal=True, key="menu_radio", label_visibility="collapsed")
 
 # ------------------------------------------
@@ -1165,3 +1165,99 @@ elif seccion == "🥛 Malteadas":
                     time.sleep(1.5)
                     st.rerun()
     conn.close()
+
+# ------------------------------------------
+# SECCIÓN 5: FORMATOS (NUEVA PESTAÑA)
+# ------------------------------------------
+elif seccion == "📄 Formatos":
+    st.header("Formatos Operativos")
+    
+    # --- FORMATO 1: TEMPERATURAS ---
+    with st.expander("🌡️ Formato de Temperaturas", expanded=False):
+        st.subheader("Registro de Temperaturas (CONGELACIÓN)")
+        
+        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
+        hoy = get_hora_mexico().date()
+        dias_para_lunes = (0 - hoy.weekday()) % 7
+        if dias_para_lunes == 0: 
+            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
+            
+        inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
+        if hoy.weekday() == 6:
+            inicio_semana_1 = hoy + timedelta(days=1)
+            
+        inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
+        
+        # Diccionarios para meses en español
+        meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        
+        def generar_df_semana(fecha_inicio):
+            fecha_fin = fecha_inicio + timedelta(days=6)
+            datos_semana = []
+            for i in range(7):
+                dia_actual = fecha_inicio + timedelta(days=i)
+                datos_semana.append({
+                    "DÍA": dias_semana[i],
+                    "FECHA": dia_actual.strftime("%d/%m/%Y"),
+                    "HORA": "",
+                    "TEMPERATURA": "",
+                    "PERSONA": ""
+                })
+            df = pd.DataFrame(datos_semana)
+            texto_mes = meses_es[fecha_inicio.month].capitalize()
+            texto_anio = fecha_inicio.year
+            texto_rango = f"Semana del {fecha_inicio.day} de {meses_es[fecha_inicio.month]} al {fecha_fin.day} de {meses_es[fecha_fin.month]}"
+            return df, texto_mes, texto_anio, texto_rango
+        
+        df_sem1, mes1, anio1, rango1 = generar_df_semana(inicio_semana_1)
+        df_sem2, mes2, anio2, rango2 = generar_df_semana(inicio_semana_2)
+        
+        st.markdown(f"**Mes:** {mes1} | **Año:** {anio1} | **{rango1}**")
+        st.dataframe(df_sem1, hide_index=True, use_container_width=True)
+        
+        st.divider()
+        
+        st.markdown(f"**Mes:** {mes2} | **Año:** {anio2} | **{rango2}**")
+        st.dataframe(df_sem2, hide_index=True, use_container_width=True)
+        
+        st.caption("Nota: Todo el alimento/producto debe estar acomodado bajo el sistema PEPS. La temperatura de la unidad debe estar entre los -18°C a -25°C.")
+
+    # --- FORMATO 2: PRECONTEO DE BOCADILLOS (TIPO IMAGEN) ---
+    with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
+        st.subheader("PRECONTEO DE BOCADILLOS")
+        
+        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
+        mapa_preconteo = {
+            "Cubiletes": "Cubilete Queso",
+            "Tutis": "Tuti",
+            "Chorizo Hojaldrado": "Choricito Hojaldrado",
+            "Hojaldra Jamón": "Hojaldra Jamón",
+            "Salchicha Hojaldrada": "Salchichita Hojaldrada",
+            "Volován de Cochinita": "Volován Cochinita",
+            "Volován de Jamón": "Volován Jamón Queso",
+            "Volován de Pierna": "Volován Pierna",
+            "Volován de Picadillo": "Volován Picadillo"
+        }
+        
+        # Llamar a la base de datos para recuperar stock total
+        stock_actual_bd = calcular_stock_detallado()
+        totales_por_producto = {}
+        for item in stock_actual_bd:
+            prod = item["producto"]
+            totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
+            
+        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
+        datos_preconteo = []
+        for prod_bd, nombre_imagen in mapa_preconteo.items():
+            total_pz = totales_por_producto.get(prod_bd, 0)
+            datos_preconteo.append({
+                "PRODUCTO": nombre_imagen,
+                "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
+            })
+            
+        df_preconteo = pd.DataFrame(datos_preconteo)
+        
+        # Mostrar usando st.table para un formato estático mucho más parecido al visual de la imagen impresa
+        st.table(df_preconteo)
