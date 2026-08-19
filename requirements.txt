@@ -1,4 +1,6 @@
-streamlit>=1.32.0
-streamlit-mic-recorder
-Pillow
+streamlit
+pandas
 pytz
+Pillow
+streamlit-mic-recorder
+libsql-experimental
