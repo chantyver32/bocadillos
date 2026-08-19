@@ -1,6 +1,6 @@
 import re
 import time
-import sqlite3
+import os
 import urllib.parse
 from datetime import datetime, timedelta
 import pytz
@@ -9,12 +9,23 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
+# Importamos la librería de Turso haciéndola pasar por sqlite3
+import libsql_experimental as sqlite3
+
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
 
-DB_NAME = "inventario_bocadillos.db"
+# Variables de entorno para Turso (Koyeb) o archivo local por defecto
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+
+def get_conexion():
+    """Función centralizada para conectar a Turso o a la base local"""
+    if TURSO_TOKEN:
+        return sqlite3.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+    return sqlite3.connect(TURSO_URL)
 
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
@@ -33,7 +44,7 @@ def get_hora_mexico():
     return datetime.now(tz_mexico)
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -102,7 +113,7 @@ init_db()
 # FUNCIONES AUXILIARES Y DIBUJO DE IMAGEN
 # ==========================================
 def calcular_stock_detallado():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     
     c.execute("SELECT producto, fecha_caducidad, SUM(piezas_totales) FROM entradas GROUP BY producto, fecha_caducidad")
@@ -438,7 +449,7 @@ def dialog_voz_entrada():
             fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
             cad_str = cad_sel.strftime("%d/%m/%Y")
             
-            conn = sqlite3.connect(DB_NAME)
+            conn = get_conexion()
             c = conn.cursor()
             c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                       (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -500,7 +511,7 @@ def dialog_voz_horneado():
                     st.info(f"**Horneado:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_a_hornear} pz)")
                     
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    conn = sqlite3.connect(DB_NAME)
+                    conn = get_conexion()
                     c = conn.cursor()
                     c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                               (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
@@ -528,7 +539,7 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -548,7 +559,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
     
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
@@ -567,7 +578,7 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
@@ -593,7 +604,7 @@ def verificar_login():
             usuario_input = st.text_input("👤 Usuario:")
             password_input = st.text_input("🔑 Contraseña:", type="password")
             if st.form_submit_button("Iniciar Sesión", use_container_width=True):
-                conn = sqlite3.connect(DB_NAME)
+                conn = get_conexion()
                 c = conn.cursor()
                 c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
                 user = c.fetchone()
@@ -669,7 +680,7 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
         confirmar_reset = st.checkbox("Confirmar borrado", key="check_reset")
         if st.button("⚠️ RESET TOTAL", use_container_width=True):
             if confirmar_reset:
-                conn = sqlite3.connect(DB_NAME)
+                conn = get_conexion()
                 c = conn.cursor()
                 c.execute("DELETE FROM entradas")
                 c.execute("DELETE FROM horneado")
@@ -743,7 +754,7 @@ if seccion == "📥 Entradas":
         st.subheader("✏️ Edición Rápida (Entradas)")
         st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
         
         if not df_ent.empty:
@@ -916,7 +927,7 @@ elif seccion == "🥐 Horneado":
         st.subheader("✏️ Edición Rápida (Historial de Horneado)")
         st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
         
         if not df_horn.empty:
@@ -985,7 +996,7 @@ elif seccion == "🥤 Coca-Cola":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Coca-Cola")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
@@ -1086,7 +1097,7 @@ elif seccion == "🥛 Malteadas":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Malteadas")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_malteadas = c.fetchall()
