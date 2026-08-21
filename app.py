@@ -9,23 +9,28 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
-# Importamos la librería de Turso haciéndola pasar por sqlite3
-import libsql_experimental as sqlite3
+# Importamos la librería oficial de Oracle
+import oracledb
 
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
 
-# Variables de entorno para Turso (Koyeb) o archivo local por defecto
-TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
-TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
-
 def get_conexion():
-    """Función centralizada para conectar a Turso o a la base local"""
-    if TURSO_TOKEN:
-        return sqlite3.connect(TURSO_URL, auth_token=TURSO_TOKEN)
-    return sqlite3.connect(TURSO_URL)
+    """Función para conectar al servidor Oracle de la nube"""
+    try:
+        conn = oracledb.connect(
+            user=st.secrets["ORACLE_USER"],
+            password=st.secrets["ORACLE_PASSWORD"],
+            host=st.secrets["ORACLE_IP"],
+            port=st.secrets["ORACLE_PORT"],
+            service_name=st.secrets["ORACLE_SERVICE"]
+        )
+        return conn
+    except Exception as e:
+        st.error(f"Error crítico al conectar con la base de datos Oracle: {e}")
+        st.stop()
 
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
@@ -43,65 +48,74 @@ def get_hora_mexico():
     tz_mexico = pytz.timezone('America/Mexico_City')
     return datetime.now(tz_mexico)
 
+def run_ddl(cursor, sql):
+    """Ejecuta creación de tablas e ignora el error si ya existen"""
+    try:
+        cursor.execute(sql)
+    except oracledb.DatabaseError as e:
+        error, = e.args
+        if error.code not in (955, 1430): # 955 = objeto ya existe, 1430 = columna ya existe
+            raise
+
 def init_db():
     conn = get_conexion()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                    username TEXT UNIQUE, 
-                    password TEXT
-                )''')
-    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
     
-    # Usuario urano sin permisos de edición (contraseña minúscula)
-    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('urano', 'urano')")
-    # Forzamos la actualización por si ya se había creado con mayúscula en la corrida anterior
+    # Sintaxis de creación para Oracle
+    run_ddl(c, '''CREATE TABLE usuarios (
+                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, 
+                    username VARCHAR2(255) UNIQUE, 
+                    password VARCHAR2(255)
+                )''')
+    
+    try:
+        c.execute("INSERT INTO usuarios (username, password) VALUES ('admin', 'admin')")
+    except oracledb.DatabaseError:
+        pass # Ignorar si ya existe
+        
+    try:
+        c.execute("INSERT INTO usuarios (username, password) VALUES ('urano', 'urano')")
+    except oracledb.DatabaseError:
+        pass # Ignorar si ya existe
+        
     c.execute("UPDATE usuarios SET password = 'urano' WHERE username = 'urano'")
     
-    c.execute('''CREATE TABLE IF NOT EXISTS entradas (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT,
-                    paquetes INTEGER,
-                    piezas_totales INTEGER,
-                    fecha_caducidad TEXT,
-                    fecha_registro TEXT,
-                    fecha_actualizacion TEXT
+    run_ddl(c, '''CREATE TABLE entradas (
+                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    producto VARCHAR2(255),
+                    paquetes NUMBER,
+                    piezas_totales NUMBER,
+                    fecha_caducidad VARCHAR2(255),
+                    fecha_registro VARCHAR2(255),
+                    fecha_actualizacion VARCHAR2(255)
                 )''')
-    try: c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
 
-    c.execute('''CREATE TABLE IF NOT EXISTS horneado (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT,
-                    paquetes INTEGER,
-                    piezas_totales INTEGER,
-                    fecha_hora TEXT,
-                    fecha_actualizacion TEXT,
-                    fecha_caducidad TEXT
+    run_ddl(c, '''CREATE TABLE horneado (
+                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    producto VARCHAR2(255),
+                    paquetes NUMBER,
+                    piezas_totales NUMBER,
+                    fecha_hora VARCHAR2(255),
+                    fecha_actualizacion VARCHAR2(255),
+                    fecha_caducidad VARCHAR2(255)
                 )''')
-    try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
-    try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
-    except sqlite3.OperationalError: pass
 
-    c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT,
-                    cantidad INTEGER,
-                    fecha_caducidad TEXT,
-                    fecha_registro TEXT,
-                    fecha_actualizacion TEXT
+    run_ddl(c, '''CREATE TABLE cocacola (
+                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    producto VARCHAR2(255),
+                    cantidad NUMBER,
+                    fecha_caducidad VARCHAR2(255),
+                    fecha_registro VARCHAR2(255),
+                    fecha_actualizacion VARCHAR2(255)
                 )''')
-    try: c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
 
-    c.execute('''CREATE TABLE IF NOT EXISTS malteadas (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    producto TEXT,
-                    cantidad INTEGER,
-                    fecha_caducidad TEXT,
-                    fecha_registro TEXT,
-                    fecha_actualizacion TEXT
+    run_ddl(c, '''CREATE TABLE malteadas (
+                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    producto VARCHAR2(255),
+                    cantidad NUMBER,
+                    fecha_caducidad VARCHAR2(255),
+                    fecha_registro VARCHAR2(255),
+                    fecha_actualizacion VARCHAR2(255)
                 )''')
 
     conn.commit()
@@ -451,7 +465,7 @@ def dialog_voz_entrada():
             
             conn = get_conexion()
             c = conn.cursor()
-            c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
+            c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5, :6)",
                       (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
             conn.commit()
             conn.close()
@@ -513,7 +527,7 @@ def dialog_voz_horneado():
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     conn = get_conexion()
                     c = conn.cursor()
-                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
+                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (:1, :2, :3, :4, :5, :6)",
                               (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
                     conn.commit()
                     conn.close()
@@ -541,7 +555,7 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
         cad_str = caducidad.strftime("%d/%m/%Y")
         conn = get_conexion()
         c = conn.cursor()
-        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
+        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5, :6)",
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
@@ -561,7 +575,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         conn = get_conexion()
         c = conn.cursor()
-        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
+        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (:1, :2, :3, :4, :5, :6)",
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
         conn.commit()
         conn.close()
@@ -580,7 +594,8 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
         cad_str = caducidad.strftime("%d/%m/%Y")
         conn = get_conexion()
         c = conn.cursor()
-        c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
+        # En Oracle los nombres de tabla dinámicos se inyectan en f-strings, pero los valores se pasan como binds
+        c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5)",
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
@@ -606,7 +621,7 @@ def verificar_login():
             if st.form_submit_button("Iniciar Sesión", use_container_width=True):
                 conn = get_conexion()
                 c = conn.cursor()
-                c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
+                c.execute("SELECT * FROM usuarios WHERE username = :1 AND password = :2", (usuario_input.strip(), password_input))
                 user = c.fetchone()
                 conn.close()
                 if user:
@@ -756,6 +771,8 @@ if seccion == "📥 Entradas":
         
         conn = get_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
+        # Convertimos columnas a minúsculas por si Oracle las trae en MAYÚSCULAS
+        df_ent.columns = df_ent.columns.str.lower()
         
         if not df_ent.empty:
             df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
@@ -788,7 +805,7 @@ if seccion == "📥 Entradas":
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                         
-                        c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                        c.execute("UPDATE entradas SET producto=:1, paquetes=:2, piezas_totales=:3, fecha_caducidad=:4, fecha_actualizacion=:5 WHERE id=:6", 
                                   (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -929,6 +946,7 @@ elif seccion == "🥐 Horneado":
         
         conn = get_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
+        df_horn.columns = df_horn.columns.str.lower()
         
         if not df_horn.empty:
             df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
@@ -961,7 +979,7 @@ elif seccion == "🥐 Horneado":
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                         
-                        c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                        c.execute("UPDATE horneado SET producto=:1, paquetes=:2, piezas_totales=:3, fecha_caducidad=:4, fecha_actualizacion=:5 WHERE id=:6", 
                                   (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1027,6 +1045,7 @@ elif seccion == "🥤 Coca-Cola":
         st.subheader("✏️ Edición Rápida (Coca-Cola)")
         
         df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM cocacola", conn)
+        df_coca.columns = df_coca.columns.str.lower()
         
         if not df_coca.empty:
             edited_df_c = st.data_editor(
@@ -1051,7 +1070,7 @@ elif seccion == "🥤 Coca-Cola":
                     orig = df_coca.iloc[i]
                     if not row.equals(orig):
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                        c.execute("UPDATE cocacola SET producto=:1, cantidad=:2, fecha_caducidad=:3, fecha_actualizacion=:4 WHERE id=:5", 
                                   (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1128,6 +1147,7 @@ elif seccion == "🥛 Malteadas":
         st.subheader("✏️ Edición Rápida (Malteadas)")
         
         df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM malteadas", conn)
+        df_malt.columns = df_malt.columns.str.lower()
         
         if not df_malt.empty:
             edited_df_m = st.data_editor(
@@ -1152,7 +1172,7 @@ elif seccion == "🥛 Malteadas":
                     orig = df_malt.iloc[i]
                     if not row.equals(orig):
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
+                        c.execute("UPDATE malteadas SET producto=:1, cantidad=:2, fecha_caducidad=:3, fecha_actualizacion=:4 WHERE id=:5", 
                                   (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1270,5 +1290,4 @@ elif seccion == "📄 Formatos":
             
         df_preconteo = pd.DataFrame(datos_preconteo)
         
-        # Mostrar usando st.table para un formato estático mucho más parecido al visual de la imagen impresa
         st.table(df_preconteo)
