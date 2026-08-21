@@ -9,28 +9,22 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
-# Importamos la librería oficial de Oracle
-import oracledb
+# Conexión Turso / LibSQL (Koyeb / Cloud) o SQLite local
+import libsql_experimental as sqlite3
 
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
 
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+
 def get_conexion():
-    """Función para conectar al servidor Oracle de la nube"""
-    try:
-        conn = oracledb.connect(
-            user=st.secrets["ORACLE_USER"],
-            password=st.secrets["ORACLE_PASSWORD"],
-            host=st.secrets["ORACLE_IP"],
-            port=st.secrets["ORACLE_PORT"],
-            service_name=st.secrets["ORACLE_SERVICE"]
-        )
-        return conn
-    except Exception as e:
-        st.error(f"Error crítico al conectar con la base de datos Oracle: {e}")
-        st.stop()
+    """Función centralizada para conectar a Turso o a la base local."""
+    if TURSO_TOKEN:
+        return sqlite3.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+    return sqlite3.connect(TURSO_URL)
 
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
@@ -48,74 +42,70 @@ def get_hora_mexico():
     tz_mexico = pytz.timezone('America/Mexico_City')
     return datetime.now(tz_mexico)
 
-def run_ddl(cursor, sql):
-    """Ejecuta creación de tablas e ignora el error si ya existen"""
-    try:
-        cursor.execute(sql)
-    except oracledb.DatabaseError as e:
-        error, = e.args
-        if error.code not in (955, 1430): # 955 = objeto ya existe, 1430 = columna ya existe
-            raise
-
 def init_db():
     conn = get_conexion()
     c = conn.cursor()
-    
-    # Sintaxis de creación para Oracle
-    run_ddl(c, '''CREATE TABLE usuarios (
-                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, 
-                    username VARCHAR2(255) UNIQUE, 
-                    password VARCHAR2(255)
+    c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                    username TEXT UNIQUE, 
+                    password TEXT
                 )''')
-    
-    try:
-        c.execute("INSERT INTO usuarios (username, password) VALUES ('admin', 'admin')")
-    except oracledb.DatabaseError:
-        pass # Ignorar si ya existe
-        
-    try:
-        c.execute("INSERT INTO usuarios (username, password) VALUES ('urano', 'urano')")
-    except oracledb.DatabaseError:
-        pass # Ignorar si ya existe
-        
+    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
+    c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('urano', 'urano')")
     c.execute("UPDATE usuarios SET password = 'urano' WHERE username = 'urano'")
     
-    run_ddl(c, '''CREATE TABLE entradas (
-                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    producto VARCHAR2(255),
-                    paquetes NUMBER,
-                    piezas_totales NUMBER,
-                    fecha_caducidad VARCHAR2(255),
-                    fecha_registro VARCHAR2(255),
-                    fecha_actualizacion VARCHAR2(255)
+    c.execute('''CREATE TABLE IF NOT EXISTS entradas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto TEXT,
+                    paquetes INTEGER,
+                    piezas_totales INTEGER,
+                    fecha_caducidad TEXT,
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    run_ddl(c, '''CREATE TABLE horneado (
-                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    producto VARCHAR2(255),
-                    paquetes NUMBER,
-                    piezas_totales NUMBER,
-                    fecha_hora VARCHAR2(255),
-                    fecha_actualizacion VARCHAR2(255),
-                    fecha_caducidad VARCHAR2(255)
+    c.execute('''CREATE TABLE IF NOT EXISTS horneado (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto TEXT,
+                    paquetes INTEGER,
+                    piezas_totales INTEGER,
+                    fecha_hora TEXT,
+                    fecha_actualizacion TEXT,
+                    fecha_caducidad TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    run_ddl(c, '''CREATE TABLE cocacola (
-                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    producto VARCHAR2(255),
-                    cantidad NUMBER,
-                    fecha_caducidad VARCHAR2(255),
-                    fecha_registro VARCHAR2(255),
-                    fecha_actualizacion VARCHAR2(255)
+    c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto TEXT,
+                    cantidad INTEGER,
+                    fecha_caducidad TEXT,
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
                 )''')
+    try:
+        c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    run_ddl(c, '''CREATE TABLE malteadas (
-                    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    producto VARCHAR2(255),
-                    cantidad NUMBER,
-                    fecha_caducidad VARCHAR2(255),
-                    fecha_registro VARCHAR2(255),
-                    fecha_actualizacion VARCHAR2(255)
+    c.execute('''CREATE TABLE IF NOT EXISTS malteadas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto TEXT,
+                    cantidad INTEGER,
+                    fecha_caducidad TEXT,
+                    fecha_registro TEXT,
+                    fecha_actualizacion TEXT
                 )''')
 
     conn.commit()
@@ -177,8 +167,10 @@ def get_fechas_disp(producto):
 
 def get_font(names, size):
     for name in names:
-        try: return ImageFont.truetype(name, size)
-        except: continue
+        try:
+            return ImageFont.truetype(name, size)
+        except:
+            continue
     return ImageFont.load_default()
 
 def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal=""):
@@ -193,8 +185,8 @@ def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal="")
 
     texto_principal = f"Champlitte{texto_sucursal}"
     
-    draw.text((width//2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
-    draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
+    draw.text((width // 2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
+    draw.text((width // 2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
 def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
     width = 950
@@ -219,8 +211,8 @@ def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width//2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width // 2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -241,22 +233,22 @@ def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
         draw.line([640, y, 640, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([770, y, 770, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((20, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((20, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
 
         linea_texto = str(item.get("linea", ""))
         badge_bg = WINE_LIGHT if "Mixta" in linea_texto else ((252, 230, 230) if "Dulce" in linea_texto else WINE)
         badge_text = WHITE if "Mixta" in linea_texto else (WINE if "Dulce" in linea_texto else WHITE)
 
         badge_w, badge_h = 110, 24
-        badge_x = col_linea - (badge_w//2)
-        badge_y = y + (row_height//2) - (badge_h//2)
+        badge_x = col_linea - (badge_w // 2)
+        badge_y = y + (row_height // 2) - (badge_h // 2)
         if linea_texto != "-":
             draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=12, fill=badge_bg)
-            draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
+            draw.text((col_linea, y + (row_height // 2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
 
-        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
-        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((col_cant, y + (row_height // 2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((col_totales, y + (row_height // 2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height // 2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -285,8 +277,8 @@ def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width//2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width // 2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -303,9 +295,9 @@ def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
         draw.line([380, y, 380, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([580, y, 580, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((50, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((col_totales, y + (row_height // 2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height // 2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -335,8 +327,8 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width//2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width // 2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
+    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -353,9 +345,9 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
         draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([660, y, 660, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((50, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((col_cant, y + (row_height // 2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height // 2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -396,15 +388,18 @@ def procesar_texto_voz(texto):
 
     paquetes = 0
     match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
-    if match_paq: paquetes = int(match_paq.group(1))
+    if match_paq:
+        paquetes = int(match_paq.group(1))
         
     piezas = 0
     match_pz = re.search(r'(\d+)\s*(pieza|piezas|suelta|sueltas|pz)', texto_norm)
-    if match_pz: piezas = int(match_pz.group(1))
+    if match_pz:
+        piezas = int(match_pz.group(1))
         
     if paquetes == 0 and piezas == 0:
         match_any = re.search(r'(\d+)', texto_norm)
-        if match_any: paquetes = int(match_any.group(1)) 
+        if match_any:
+            paquetes = int(match_any.group(1)) 
 
     fecha_detectada = None
     meses_dict = {
@@ -465,7 +460,7 @@ def dialog_voz_entrada():
             
             conn = get_conexion()
             c = conn.cursor()
-            c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5, :6)",
+            c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                       (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
             conn.commit()
             conn.close()
@@ -527,7 +522,7 @@ def dialog_voz_horneado():
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     conn = get_conexion()
                     c = conn.cursor()
-                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (:1, :2, :3, :4, :5, :6)",
+                    c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                               (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
                     conn.commit()
                     conn.close()
@@ -555,7 +550,7 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
         cad_str = caducidad.strftime("%d/%m/%Y")
         conn = get_conexion()
         c = conn.cursor()
-        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5, :6)",
+        c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
@@ -575,7 +570,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         conn = get_conexion()
         c = conn.cursor()
-        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (:1, :2, :3, :4, :5, :6)",
+        c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
         conn.commit()
         conn.close()
@@ -594,8 +589,7 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
         cad_str = caducidad.strftime("%d/%m/%Y")
         conn = get_conexion()
         c = conn.cursor()
-        # En Oracle los nombres de tabla dinámicos se inyectan en f-strings, pero los valores se pasan como binds
-        c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (:1, :2, :3, :4, :5)",
+        c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
@@ -621,7 +615,7 @@ def verificar_login():
             if st.form_submit_button("Iniciar Sesión", use_container_width=True):
                 conn = get_conexion()
                 c = conn.cursor()
-                c.execute("SELECT * FROM usuarios WHERE username = :1 AND password = :2", (usuario_input.strip(), password_input))
+                c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
                 user = c.fetchone()
                 conn.close()
                 if user:
@@ -771,8 +765,6 @@ if seccion == "📥 Entradas":
         
         conn = get_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
-        # Convertimos columnas a minúsculas por si Oracle las trae en MAYÚSCULAS
-        df_ent.columns = df_ent.columns.str.lower()
         
         if not df_ent.empty:
             df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
@@ -805,7 +797,7 @@ if seccion == "📥 Entradas":
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                         
-                        c.execute("UPDATE entradas SET producto=:1, paquetes=:2, piezas_totales=:3, fecha_caducidad=:4, fecha_actualizacion=:5 WHERE id=:6", 
+                        c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
                                   (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -946,7 +938,6 @@ elif seccion == "🥐 Horneado":
         
         conn = get_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
-        df_horn.columns = df_horn.columns.str.lower()
         
         if not df_horn.empty:
             df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
@@ -979,7 +970,7 @@ elif seccion == "🥐 Horneado":
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                         
-                        c.execute("UPDATE horneado SET producto=:1, paquetes=:2, piezas_totales=:3, fecha_caducidad=:4, fecha_actualizacion=:5 WHERE id=:6", 
+                        c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
                                   (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1045,7 +1036,6 @@ elif seccion == "🥤 Coca-Cola":
         st.subheader("✏️ Edición Rápida (Coca-Cola)")
         
         df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM cocacola", conn)
-        df_coca.columns = df_coca.columns.str.lower()
         
         if not df_coca.empty:
             edited_df_c = st.data_editor(
@@ -1070,7 +1060,7 @@ elif seccion == "🥤 Coca-Cola":
                     orig = df_coca.iloc[i]
                     if not row.equals(orig):
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE cocacola SET producto=:1, cantidad=:2, fecha_caducidad=:3, fecha_actualizacion=:4 WHERE id=:5", 
+                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
                                   (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1147,7 +1137,6 @@ elif seccion == "🥛 Malteadas":
         st.subheader("✏️ Edición Rápida (Malteadas)")
         
         df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM malteadas", conn)
-        df_malt.columns = df_malt.columns.str.lower()
         
         if not df_malt.empty:
             edited_df_m = st.data_editor(
@@ -1172,7 +1161,7 @@ elif seccion == "🥛 Malteadas":
                     orig = df_malt.iloc[i]
                     if not row.equals(orig):
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE malteadas SET producto=:1, cantidad=:2, fecha_caducidad=:3, fecha_actualizacion=:4 WHERE id=:5", 
+                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
                                   (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
@@ -1198,7 +1187,7 @@ elif seccion == "🥛 Malteadas":
     conn.close()
 
 # ------------------------------------------
-# SECCIÓN 5: FORMATOS (NUEVA PESTAÑA)
+# SECCIÓN 5: FORMATOS
 # ------------------------------------------
 elif seccion == "📄 Formatos":
     st.header("Formatos Operativos")
@@ -1207,11 +1196,10 @@ elif seccion == "📄 Formatos":
     with st.expander("🌡️ Formato de Temperaturas", expanded=False):
         st.subheader("Registro de Temperaturas (CONGELACIÓN)")
         
-        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
         hoy = get_hora_mexico().date()
         dias_para_lunes = (0 - hoy.weekday()) % 7
         if dias_para_lunes == 0: 
-            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
+            dias_para_lunes = 7
             
         inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
         if hoy.weekday() == 6:
@@ -1219,7 +1207,6 @@ elif seccion == "📄 Formatos":
             
         inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
         
-        # Diccionarios para meses en español
         meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
         
@@ -1254,11 +1241,10 @@ elif seccion == "📄 Formatos":
         
         st.caption("Nota: Todo el alimento/producto debe estar acomodado bajo el sistema PEPS. La temperatura de la unidad debe estar entre los -18°C a -25°C.")
 
-    # --- FORMATO 2: PRECONTEO DE BOCADILLOS (TIPO IMAGEN) ---
-    with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
+    # --- FORMATO 2: PRECONTEO DE BOCADILLOS ---
+    with st.expander("📝 Formato de Preconteo", expanded=False):
         st.subheader("PRECONTEO DE BOCADILLOS")
         
-        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
         mapa_preconteo = {
             "Cubiletes": "Cubilete Queso",
             "Tutis": "Tuti",
@@ -1271,23 +1257,20 @@ elif seccion == "📄 Formatos":
             "Volován de Picadillo": "Volován Picadillo"
         }
         
-        # Llamar a la base de datos para recuperar stock total
         stock_actual_bd = calcular_stock_detallado()
         totales_por_producto = {}
         for item in stock_actual_bd:
             prod = item["producto"]
             totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
             
-        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
         datos_preconteo = []
         for prod_bd, nombre_imagen in mapa_preconteo.items():
             total_pz = totales_por_producto.get(prod_bd, 0)
             datos_preconteo.append({
                 "PRODUCTO": nombre_imagen,
                 "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
-                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""
             })
             
         df_preconteo = pd.DataFrame(datos_preconteo)
-        
         st.table(df_preconteo)
