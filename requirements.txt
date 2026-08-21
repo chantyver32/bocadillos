@@ -3,3 +3,4 @@ pandas
 Pillow
 pytz
 streamlit-mic-recorder
+libsql-experimental
