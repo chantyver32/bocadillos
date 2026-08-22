@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import pytz
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
 # ==========================================
@@ -99,7 +98,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES Y DIBUJO DE IMAGEN
+# FUNCIONES AUXILIARES Y GENERACIÓN HTML
 # ==========================================
 def calcular_stock_detallado():
     conn = sqlite3.connect(DB_NAME)
@@ -150,194 +149,57 @@ def get_fechas_disp(producto):
     fechas.sort(key=lambda date_str: datetime.strptime(date_str, '%d/%m/%Y'))
     return fechas
 
-def get_font(names, size):
-    for name in names:
-        try: return ImageFont.truetype(name, size)
-        except: continue
-    return ImageFont.load_default()
+def generar_html_tabla(titulo, subtitulo, columnas, claves_datos, datos, fecha_str, sucursal=""):
+    WINE = "#8b1c31"
+    html = f"""<div style="background-color: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); max-width: 900px; margin: auto; margin-bottom: 20px;">
+    <div style="text-align: center; color: {WINE}; font-family: 'Georgia', serif;">
+    <h1 style="margin: 0; font-size: 32px; font-weight: bold;">Champlitte {sucursal.title() if sucursal else ''}</h1>
+    <h4 style="margin: 5px 0 15px 0; color: #333; letter-spacing: 2px; font-size: 12px; font-family: sans-serif; font-weight: bold;">{subtitulo}</h4>
+    <h2 style="margin: 0; font-size: 24px; font-weight: bold;">{titulo}</h2>
+    <p style="color: #666; font-size: 12px; margin-top: 5px; font-family: sans-serif;">{fecha_str}</p>
+    </div>
+    <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-family: sans-serif; font-size: 14px; min-width: 600px;">
+    <thead>
+    <tr style="background-color: {WINE}; color: white; text-align: center; font-size: 12px;">
+    """
+    for i, col in enumerate(columnas):
+        rad_l = "border-top-left-radius: 8px;" if i == 0 else ""
+        rad_r = "border-top-right-radius: 8px;" if i == len(columnas)-1 else ""
+        html += f'<th style="padding: 12px; {rad_l} {rad_r}">{col}</th>\n'
+        
+    html += "</tr>\n</thead>\n<tbody>\n"
 
-def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal=""):
-    tamaño_fuente = 55 if sucursal else 75
-    font_champlitte = get_font(["DejaVuSerif-Bold.ttf", "georgiab.ttf", "Times-Bold.ttf", "arialbd.ttf"], tamaño_fuente)
-    font_pasteleria = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf", "Helvetica-Bold.ttf"], 22)
-    
-    texto_sucursal = ""
-    if sucursal:
-        palabras = sucursal.split()
-        texto_sucursal = " " + " ".join([w.capitalize() if w.lower() not in ['de', 'del', 'la', 'las', 'el', 'los'] else w.lower() for w in palabras])
+    row_color_alt = False
+    for row in datos:
+        bg_color = "#fffafb" if row_color_alt else "#ffffff"
+        row_color_alt = not row_color_alt
+        html += f'<tr style="background-color: {bg_color}; border-bottom: 1px solid #f0f0f0; text-align: center; color: {WINE}; font-weight: bold; font-size: 13px;">\n'
+        
+        for idx, clave in enumerate(claves_datos):
+            val = row.get(clave, "-")
+            
+            style = "padding: 12px; "
+            if idx == 0:
+                style += "text-align: left; font-weight: normal; color: #333;"
+            elif clave == "totales" or (clave == "cantidad" and isinstance(val, (int, float))):
+                style += f"font-weight: bold; color: {WINE};"
+            elif clave == "linea":
+                bg_badge = "#f8eef0" if "Dulce" in str(val) else WINE
+                color_badge = WINE if "Dulce" in str(val) else "white"
+                if "Mixta" in str(val): bg_badge, color_badge = "#a02846", "white"
+                val = f'<span style="background-color: {bg_badge}; color: {color_badge}; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">{val.upper()}</span>'
+            else:
+                style += "font-weight: normal; color: #555;"
+                
+            html += f'<td style="{style}">{val}</td>\n'
+        html += "</tr>\n"
 
-    texto_principal = f"Champlitte{texto_sucursal}"
-    
-    draw.text((width//2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
-    draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
+    if not datos:
+        html += f'<tr><td colspan="{len(columnas)}" style="padding: 20px; text-align: center; color: #666; font-style: italic;">No hay inventario registrado.</td></tr>\n'
 
-def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
-    width = 950
-    espacio_logo = 175 
-    header_height = 130
-    table_header_height = 45
-    row_height = 55
-    total_height = espacio_logo + header_height + table_header_height + (len(datos) * row_height) + 40
-
-    img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
-    draw = ImageDraw.Draw(img)
-
-    WINE, WINE_LIGHT, TEXT_DARK, WHITE = (128, 21, 43), (160, 40, 70), (40, 40, 40), (255, 255, 255)
-    ROW_ALT, LINE_COLOR = (253, 243, 243), (235, 220, 225) 
-
-    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 42)
-    font_sub = get_font(["DejaVuSans.ttf", "arial.ttf"], 18)
-    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 13)
-    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 14)
-    font_badge = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 11)
-
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
-
-    y = espacio_logo
-    draw.text((width//2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
-
-    y += header_height
-    draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
-    
-    col_prod, col_linea, col_cant, col_totales, col_cad = 160, 410, 560, 710, 850
-    draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_linea, y + 22), "CATEGORÍA", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cant, y + 22), "CANTIDAD", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_totales, y + 22), "TOTAL (PZ)", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cad, y + 22), "CADUCIDAD", fill=WHITE, font=font_th, anchor="mm")
-
-    y += table_header_height
-    for item in datos:
-        bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
-        draw.rectangle([0, y, width, y + row_height], fill=bg_color)
-        draw.line([320, y, 320, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([490, y, 490, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([640, y, 640, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([770, y, 770, y + row_height], fill=LINE_COLOR, width=1)
-
-        draw.text((20, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-
-        linea_texto = str(item.get("linea", ""))
-        badge_bg = WINE_LIGHT if "Mixta" in linea_texto else ((252, 230, 230) if "Dulce" in linea_texto else WINE)
-        badge_text = WHITE if "Mixta" in linea_texto else (WINE if "Dulce" in linea_texto else WHITE)
-
-        badge_w, badge_h = 110, 24
-        badge_x = col_linea - (badge_w//2)
-        badge_y = y + (row_height//2) - (badge_h//2)
-        if linea_texto != "-":
-            draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=12, fill=badge_bg)
-            draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
-
-        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
-        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
-
-        draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
-        y += row_height
-
-    img.save("reporte_plantilla.png")
-    return "reporte_plantilla.png"
-
-def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
-    width = 800
-    espacio_logo = 175
-    header_height = 130
-    table_header_height = 45
-    row_height = 55
-    total_height = espacio_logo + header_height + table_header_height + (len(datos) * row_height) + 40
-
-    img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
-    draw = ImageDraw.Draw(img)
-
-    WINE, TEXT_DARK, WHITE, ROW_ALT, LINE_COLOR = (128, 21, 43), (40, 40, 40), (255, 255, 255), (253, 243, 243), (235, 220, 225) 
-
-    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 42)
-    font_sub = get_font(["DejaVuSans.ttf", "arial.ttf"], 18)
-    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
-    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
-
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
-
-    y = espacio_logo
-    draw.text((width//2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
-
-    y += header_height
-    draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
-    
-    col_prod, col_totales, col_cad = 200, 500, 680
-    draw.text((col_prod, y + 22), "PRODUCTO", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_totales, y + 22), "TOTAL (PIEZAS)", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cad, y + 22), "PRÓXIMO HORNEO", fill=WHITE, font=font_th, anchor="mm")
-
-    y += table_header_height
-    for item in datos:
-        bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
-        draw.rectangle([0, y, width, y + row_height], fill=bg_color)
-        draw.line([380, y, 380, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([580, y, 580, y + row_height], fill=LINE_COLOR, width=1)
-
-        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
-
-        draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
-        y += row_height
-
-    filename = "reporte_resumen.png"
-    img.save(filename)
-    return filename
-
-def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN", sucursal=""):
-    width = 900
-    espacio_logo = 175
-    header_height = 130
-    table_header_height = 45
-    row_height = 55
-    total_height = espacio_logo + header_height + table_header_height + (len(datos) * row_height) + 40
-
-    img = Image.new('RGB', (width, total_height), color=(255, 253, 251))
-    draw = ImageDraw.Draw(img)
-
-    WINE, TEXT_DARK, WHITE, ROW_ALT, LINE_COLOR = (128, 21, 43), (40, 40, 40), (255, 255, 255), (253, 243, 243), (235, 220, 225) 
-
-    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 42)
-    font_sub = get_font(["DejaVuSans.ttf", "arial.ttf"], 18)
-    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
-    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
-
-    dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
-
-    y = espacio_logo
-    draw.text((width//2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
-    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
-
-    y += header_height
-    draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
-    
-    col_prod, col_cant, col_cad = 200, 550, 780
-    draw.text((col_prod, y + 22), col1_nombre, fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cant, y + 22), "PIEZAS", fill=WHITE, font=font_th, anchor="mm")
-    draw.text((col_cad, y + 22), "CADUCIDAD", fill=WHITE, font=font_th, anchor="mm")
-
-    y += table_header_height
-    for item in datos:
-        bg_color = WHITE if datos.index(item) % 2 == 0 else ROW_ALT
-        draw.rectangle([0, y, width, y + row_height], fill=bg_color)
-        draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
-        draw.line([660, y, 660, y + row_height], fill=LINE_COLOR, width=1)
-
-        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
-
-        draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
-        y += row_height
-
-    filename = f"reporte_{titulo.lower().replace(' ', '_')}.png"
-    img.save(filename)
-    return filename
+    html += "</tbody>\n</table>\n</div>\n</div>"
+    return html
 
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
@@ -889,22 +751,31 @@ elif seccion == "🥐 Horneado":
                 })
                 lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {cant_texto} (Total: {suma_en_piezas} pz)")
     
-    if not datos_plantilla:
-        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0, "caducidad": "-"})
-        lineas_wa.append("No hay inventario.")
-    if not datos_resumen:
-        datos_resumen.append({"producto": "Sin inventario", "totales": 0, "prox_horneo": "-"})
-        
-    path_img_detalle = generar_plantilla_bocadillos(datos_plantilla, fecha_mex, seleccion_wa)
-    path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex, seleccion_wa)
-    
-    st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
+    html_resumen = generar_html_tabla(
+        titulo="RESUMEN (TOTALES)", 
+        subtitulo="CONTROL DE BOCADILLOS", 
+        columnas=["PRODUCTO", "TOTAL (PIEZAS)", "PRÓXIMO HORNEO"],
+        claves_datos=["producto", "totales", "prox_horneo"],
+        datos=datos_resumen, 
+        fecha_str=fecha_mex, 
+        sucursal=seleccion_wa
+    )
+    st.markdown(html_resumen, unsafe_allow_html=True)
     
     with st.expander("👁️ Ver Reporte Detallado por Caja"):
-        st.image(path_img_detalle, caption="Reporte Detallado", use_container_width=True)
+        html_detalle = generar_html_tabla(
+            titulo="BOCADILLOS - DETALLE", 
+            subtitulo="DESGLOSE DE CAJAS", 
+            columnas=["PRODUCTO", "CATEGORÍA", "CANTIDAD", "TOTAL (PZ)", "CADUCIDAD"],
+            claves_datos=["producto", "linea", "cantidad", "totales", "caducidad"],
+            datos=datos_plantilla, 
+            fecha_str=fecha_mex, 
+            sucursal=seleccion_wa
+        )
+        st.markdown(html_detalle, unsafe_allow_html=True)
     
     if seleccion_wa:
-        txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa)
+        txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa) if lineas_wa else f"Stock ({seleccion_wa} | {fecha_mex}):\nNo hay inventario."
         url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa)}"
         boton_whatsapp_bonito(url_wa, f"Enviar Reporte a {seleccion_wa}")
     else:
@@ -999,11 +870,18 @@ elif seccion == "🥤 Coca-Cola":
             datos_coca.append({"producto": prod, "cantidad": total, "caducidad": cad})
             lineas_wa_coca.append(f"🥤 {prod}: {total} piezas (Vence: {cad})")
     else:
-        datos_coca.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_coca.append("No hay inventario de refrescos.")
 
-    path_coca = generar_plantilla_generica(datos_coca, fecha_mex_coca, "COCA-COLA", "PRESENTACIÓN", seleccion_wa)
-    st.image(path_coca, caption="Reporte de Refrescos", use_container_width=True)
+    html_coca = generar_html_tabla(
+        titulo="COCA-COLA", 
+        subtitulo="CONTROL DE REFRESCOS",
+        columnas=["PRESENTACIÓN", "PIEZAS", "CADUCIDAD"],
+        claves_datos=["producto", "cantidad", "caducidad"],
+        datos=datos_coca, 
+        fecha_str=fecha_mex_coca, 
+        sucursal=seleccion_wa
+    )
+    st.markdown(html_coca, unsafe_allow_html=True)
 
     if seleccion_wa:
         txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):\n" + "\n".join(lineas_wa_coca)
@@ -1100,11 +978,18 @@ elif seccion == "🥛 Malteadas":
             datos_malteadas.append({"producto": f"Malteada de {prod}", "cantidad": total, "caducidad": cad})
             lineas_wa_malteadas.append(f"🥛 Malteada de {prod}: {total} piezas (Vence: {cad})")
     else:
-        datos_malteadas.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
         lineas_wa_malteadas.append("No hay inventario de malteadas.")
 
-    path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR", seleccion_wa)
-    st.image(path_malteadas, caption="Reporte de Malteadas", use_container_width=True)
+    html_malteadas = generar_html_tabla(
+        titulo="MALTEADAS", 
+        subtitulo="CONTROL DE BEBIDAS",
+        columnas=["SABOR", "PIEZAS", "CADUCIDAD"],
+        claves_datos=["producto", "cantidad", "caducidad"],
+        datos=datos_malteadas, 
+        fecha_str=fecha_mex_malteadas, 
+        sucursal=seleccion_wa
+    )
+    st.markdown(html_malteadas, unsafe_allow_html=True)
 
     if seleccion_wa:
         txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):\n" + "\n".join(lineas_wa_malteadas)
