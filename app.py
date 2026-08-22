@@ -73,7 +73,7 @@ def init_db():
                     fecha_actualizacion TEXT
                 )''')
     try: c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
+    except Exception: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS horneado (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,9 +85,9 @@ def init_db():
                     fecha_caducidad TEXT
                 )''')
     try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
+    except Exception: pass
     try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
-    except sqlite3.OperationalError: pass
+    except Exception: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +98,7 @@ def init_db():
                     fecha_actualizacion TEXT
                 )''')
     try: c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError: pass
+    except Exception: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS malteadas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
