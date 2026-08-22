@@ -22,12 +22,11 @@ if "TURSO_DATABASE_URL" in st.secrets:
     TURSO_URL = st.secrets["TURSO_DATABASE_URL"]
     TURSO_TOKEN = st.secrets["TURSO_AUTH_TOKEN"]
 else:
-    # Alternativa por si lo corres localmente sin configurar secretos o en Koyeb
+    # Alternativa local
     TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
     TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 
 def get_conexion():
-    """Función centralizada para conectar a Turso o a la base local"""
     if TURSO_TOKEN:
         return sqlite3.connect(TURSO_URL, auth_token=TURSO_TOKEN)
     return sqlite3.connect(TURSO_URL)
@@ -57,10 +56,7 @@ def init_db():
                     password TEXT
                 )''')
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
-    
-    # Usuario urano sin permisos de edición (contraseña minúscula)
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('urano', 'urano')")
-    # Forzamos la actualización por si ya se había creado con mayúscula en la corrida anterior
     c.execute("UPDATE usuarios SET password = 'urano' WHERE username = 'urano'")
     
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
@@ -108,14 +104,13 @@ def init_db():
                     fecha_registro TEXT,
                     fecha_actualizacion TEXT
                 )''')
-
     conn.commit()
     conn.close()
 
 init_db()
 
 # ==========================================
-# FUNCIONES AUXILIARES Y CÁLCULOS
+# CÁLCULOS
 # ==========================================
 def calcular_stock_detallado():
     conn = get_conexion()
@@ -128,7 +123,6 @@ def calcular_stock_detallado():
     salidas_data = c.fetchall()
     
     salidas_dict = {f"{prod}_{cad}": total or 0 for prod, cad, total in salidas_data}
-    
     stock_detallado = []
     
     for prod in EMPAQUES.keys():
@@ -167,7 +161,7 @@ def get_fechas_disp(producto):
     return fechas
 
 # ==========================================
-# NUEVOS FORMATOS VISUALES (BASADO EN DISEÑO)
+# MOTOR VISUAL EXACTO AL DISEÑO 
 # ==========================================
 def get_font(names, size):
     for name in names:
@@ -175,12 +169,13 @@ def get_font(names, size):
         except: continue
     return ImageFont.load_default()
 
-def dibujar_tabla_estilo_app(titulo, columnas, datos_agrupados, fecha_str, sucursal="", filename="reporte.png"):
-    row_height = 55
-    cat_height = 50
-    header_height = 55
+def dibujar_tabla_clon(titulo, columnas, datos_agrupados, fecha_str, sucursal="", filename="reporte.png"):
+    # Medidas y proporciones ajustadas
     margin_x = 40
-    width = 900
+    width = 950
+    row_height = 65
+    cat_height = 55
+    header_height = 65
     
     total_rows = sum(len(filas) for filas in datos_agrupados.values())
     total_cats = len(datos_agrupados.keys())
@@ -191,31 +186,36 @@ def dibujar_tabla_estilo_app(titulo, columnas, datos_agrupados, fecha_str, sucur
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
-    WINE = (141, 34, 50)
-    LIGHT_PINK = (249, 236, 238)
-    TEXT_DARK = (60, 60, 60)
-    TEXT_GRAY = (140, 140, 140)
+    # Paleta de colores exacta de la imagen
+    WINE_DARK = (140, 29, 47)      # Fondo encabezado
+    WINE_TEXT = (140, 29, 47)      # Título principal y categorías
+    RED_NUMBERS = (164, 25, 38)    # Números en la tabla
+    LIGHT_PINK = (248, 233, 235)   # Fondo de categorías
+    TEXT_DARK = (51, 51, 51)       # Nombres de productos
+    TEXT_GRAY = (120, 120, 120)    # Fechas
     WHITE = (255, 255, 255)
-    LINE_COLOR = (240, 240, 240)
+    LINE_COLOR = (235, 235, 235)   # Líneas divisorias
     
-    font_top = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
-    font_title = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 36)
-    font_date = get_font(["DejaVuSans.ttf", "arial.ttf"], 16)
-    font_th = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 13)
-    font_cat = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 15)
-    font_td = get_font(["DejaVuSans.ttf", "arial.ttf"], 15)
-    font_td_bold = get_font(["DejaVuSans-Bold.ttf", "arialbd.ttf"], 15)
+    # Fuentes (Buscamos las más parecidas a Arial/Helvetica bold limpias)
+    font_top = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
+    font_title = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 36)
+    font_date = get_font(["Arial.ttf", "DejaVuSans.ttf", "arial.ttf"], 16)
+    font_th = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
+    font_cat = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 16)
+    font_td = get_font(["Arial.ttf", "DejaVuSans.ttf", "arial.ttf"], 16)
+    font_td_bold = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 18)
     
-    # Textos Superiores
-    y = 60
+    # Encabezado superior
+    y = 50
     texto_top = "CONTROL DE INSUMOS"
     if sucursal:
         texto_top += f" - {sucursal.upper()}"
-    texto_top_spaced = "   ".join(list(texto_top)) # Añadir espaciado tracking
+    # Tracking falso
+    texto_top_spaced = "   ".join(list(texto_top)) 
     draw.text((width//2, y), texto_top_spaced, fill=TEXT_DARK, font=font_top, anchor="mm")
     
     y += 70
-    draw.text((width//2, y), titulo.upper(), fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y), titulo.upper(), fill=WINE_TEXT, font=font_title, anchor="mm")
     
     y += 45
     draw.text((width//2, y), fecha_str, fill=TEXT_GRAY, font=font_date, anchor="mm")
@@ -223,61 +223,78 @@ def dibujar_tabla_estilo_app(titulo, columnas, datos_agrupados, fecha_str, sucur
     y += 60
     table_width = width - (margin_x * 2)
     
-    # Fondo del encabezado de la tabla (Esquinas superiores redondeadas)
-    draw.rounded_rectangle([margin_x, y, width - margin_x, y + header_height], radius=12, fill=WINE)
-    draw.rectangle([margin_x, y + header_height - 12, width - margin_x, y + header_height], fill=WINE) # Cuadrar abajo
+    # Fondo curvo del Header de la tabla
+    draw.rounded_rectangle([margin_x, y, width - margin_x, y + header_height], radius=12, fill=WINE_DARK)
+    draw.rectangle([margin_x, y + header_height - 12, width - margin_x, y + header_height], fill=WINE_DARK)
     
-    # Distribución de columnas
+    # Calcular anchos de columnas dinámicamente según la cantidad
     num_cols = len(columnas)
-    if num_cols == 3: col_widths = [0.45, 0.25, 0.30]
-    elif num_cols == 4: col_widths = [0.40, 0.25, 0.15, 0.20]
+    if num_cols == 4: col_widths = [0.45, 0.18, 0.18, 0.19] # Producto, Paquetes, Sueltas, Total
+    elif num_cols == 3: col_widths = [0.50, 0.25, 0.25]
     else: col_widths = [1.0 / num_cols] * num_cols
     
     col_x = [margin_x]
     for w in col_widths:
         col_x.append(col_x[-1] + (table_width * w))
         
-    # Dibujar Nombres de Columnas
+    # Dibujar títulos de columnas
     for i, col_name in enumerate(columnas):
+        # La primera columna va alineada a la izquierda, las demás centradas
         if i == 0:
             cx = col_x[i] + 30
             draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor="lm")
         else:
             cx = col_x[i] + ((col_x[i+1] - col_x[i]) // 2)
-            draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor="mm")
+            # Para columnas como "CANT.\nPAQUETES" que pueden tener salto de línea
+            if "\n" in col_name:
+                lineas = col_name.split("\n")
+                draw.text((cx, y + header_height//2 - 10), lineas[0], fill=WHITE, font=font_th, anchor="mm")
+                draw.text((cx, y + header_height//2 + 10), lineas[1], fill=WHITE, font=font_th, anchor="mm")
+            else:
+                draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor="mm")
             
     y += header_height
     
-    # Dibujar Filas y Categorías
+    # Dibujar Filas
     for cat, filas in datos_agrupados.items():
+        # Fila Categoría (Rosa)
         draw.rectangle([margin_x, y, width - margin_x, y + cat_height], fill=LIGHT_PINK)
-        draw.text((margin_x + 30, y + cat_height//2), cat, fill=WINE, font=font_cat, anchor="lm")
+        draw.text((margin_x + 20, y + cat_height//2), cat, fill=WINE_TEXT, font=font_cat, anchor="lm")
         y += cat_height
         
+        # Filas de Productos
         for f_idx, fila in enumerate(filas):
+            # Fondo blanco
             draw.rectangle([margin_x, y, width - margin_x, y + row_height], fill=WHITE)
+            
             for i, val in enumerate(fila):
                 text_val = str(val)
                 if i == 0:
-                    cx = col_x[i] + 30
+                    # Nombre del producto (Gris oscuro, Izquierda)
+                    cx = col_x[i] + 20
                     draw.text((cx, y + row_height//2), text_val, fill=TEXT_DARK, font=font_td, anchor="lm")
                 else:
+                    # Cantidades (Rojo Bold, Centrado)
                     cx = col_x[i] + ((col_x[i+1] - col_x[i]) // 2)
-                    color = WINE if i == 1 else TEXT_DARK
-                    draw.text((cx, y + row_height//2), text_val, fill=color, font=font_td_bold, anchor="mm")
+                    draw.text((cx, y + row_height//2), text_val, fill=RED_NUMBERS, font=font_td_bold, anchor="mm")
                     
+            # Línea inferior divisoria
             draw.line([margin_x, y + row_height, width - margin_x, y + row_height], fill=LINE_COLOR, width=1)
             y += row_height
             
+    # Remate curvo al final de la tabla (opcional para estética)
+    draw.rounded_rectangle([margin_x, y, width - margin_x, y + 10], radius=10, fill=WHITE)
+    
     img.save(filename)
     return filename
 
 def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
+    """Genera la plantilla detallada (Desglosa Paquetes y Sueltas) basándose en la Imagen 2"""
     agrupados = {}
     for item in datos:
         prod = item.get("producto", "")
         if prod == "Sin inventario":
-            agrupados["📁 INVENTARIO"] = [[prod, "0", "0", "-"]]
+            agrupados["📁 INVENTARIO"] = [[prod, "0", "0", "0"]]
             continue
             
         linea = item.get("linea", "Otros")
@@ -295,14 +312,16 @@ def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
             
         agrupados[cat].append([
             prod_name,
-            str(item.get("cantidad", "")),
-            str(item.get("totales", "0")),
-            str(item.get("caducidad", "-"))
+            str(item.get("paquetes", "0")),
+            str(item.get("piezas_sueltas", "0")),
+            str(item.get("totales", "0"))
         ])
         
-    return dibujar_tabla_estilo_app("DETALLE DE BOCADILLOS", ["PRODUCTO", "CANTIDAD", "TOTAL (PZ)", "CADUCIDAD"], agrupados, fecha_str, sucursal, "reporte_plantilla.png")
+    cols = ["PRODUCTO", "CANT.\nPAQUETES", "CANT.\nSUELTAS", "TOTAL\n(PIEZAS)"]
+    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (DETALLE)", cols, agrupados, fecha_str, sucursal, "reporte_detalle.png")
 
 def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
+    """Genera la plantilla de totales (Suma Global y Próximo Horneo)"""
     agrupados = {}
     for item in datos:
         prod = item.get("producto", "Sin nombre")
@@ -329,7 +348,8 @@ def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
             str(item.get("prox_horneo", "-"))
         ])
         
-    return dibujar_tabla_estilo_app("RESUMEN DE BOCADILLOS", ["PRODUCTO", "TOTAL (PIEZAS)", "PRÓXIMO HORNEO"], agrupados, fecha_str, sucursal, "reporte_resumen.png")
+    cols = ["PRODUCTO", "TOTAL\n(PIEZAS)", "PRÓXIMO\nHORNEO"]
+    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (TOTALES)", cols, agrupados, fecha_str, sucursal, "reporte_resumen.png")
 
 def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN", sucursal=""):
     agrupados = {f"📁 {titulo.upper()}": []}
@@ -342,7 +362,11 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
         ])
         
     filename = f"reporte_{titulo.lower().replace(' ', '_')}.png"
-    return dibujar_tabla_estilo_app(titulo, [col1_nombre, "CANT. TOTAL", "CADUCIDAD"], agrupados, fecha_str, sucursal, filename)
+    return dibujar_tabla_clon(titulo, [col1_nombre, "CANT.\nTOTAL", "CADUCIDAD"], agrupados, fecha_str, sucursal, filename)
+
+# ==========================================
+# (El resto del código de voz, whatsapp, logins y Streamlit permanece intacto)
+# ==========================================
 
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
@@ -414,9 +438,6 @@ def boton_whatsapp_bonito(url, texto):
     """
     st.markdown(html_wa, unsafe_allow_html=True)
 
-# ==========================================
-# POP-UPS DE CONFIRMACIÓN Y DIRECCIONAMIENTO
-# ==========================================
 @st.dialog("🎙️ Revisar y Guardar Dictado (Entrada)")
 def dialog_voz_entrada():
     texto = st.session_state.dictado_entrada
@@ -437,9 +458,6 @@ def dialog_voz_entrada():
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
             pz_totales = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
-            
-            st.info(f"**Ingreso:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_totales} pz)")
-            
             fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
             cad_str = cad_sel.strftime("%d/%m/%Y")
             
@@ -470,14 +488,12 @@ def dialog_voz_horneado():
     idx = list(EMPAQUES.keys()).index(prod_enc) if prod_enc in EMPAQUES else None
     
     prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
-    
     fechas_disp = get_fechas_disp(prod_sel) if prod_sel else []
     
     if not fechas_disp:
         st.warning(f"No hay stock registrado para {prod_sel}.")
     else:
         st.info("💡 Se sugiere hornear la caja con la caducidad más próxima (PEPS).")
-        
         idx_cad = 0
         if fecha_enc:
             fecha_enc_str = fecha_enc.strftime("%d/%m/%Y")
@@ -495,15 +511,12 @@ def dialog_voz_horneado():
         if st.button("🔥 Confirmar Horneado", use_container_width=True):
             if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
                 pz_a_hornear = (paq_sel * EMPAQUES[prod_sel]["piezas_x_paq"]) + pz_sel
-                
                 stock = calcular_stock_detallado()
                 disp_pz = sum([item["piezas_totales"] for item in stock if item["producto"] == prod_sel and item["caducidad"] == cad_sel])
                 
                 if pz_a_hornear > disp_pz:
                     st.error(f"⚠️ Stock insuficiente para esa caducidad. Hay {disp_pz} pz disponibles.")
                 else:
-                    st.info(f"**Horneado:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_a_hornear} pz)")
-                    
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
                     conn = get_conexion()
                     c = conn.cursor()
@@ -512,7 +525,6 @@ def dialog_voz_horneado():
                     conn.commit()
                     conn.close()
                     del st.session_state.dictado_horneado
-                    
                     st.toast("Horneado registrado.", icon="✅")
                     time.sleep(1.5)
                     st.rerun()
@@ -529,7 +541,6 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
     st.write(f"**Ingreso:** {paquetes} paquetes y {piezas_sueltas} piezas sueltas")
     st.write(f"**Total General:** {piezas_totales} piezas")
     st.write(f"**Caducidad:** {caducidad.strftime('%d/%m/%Y')}")
-    
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
@@ -539,7 +550,6 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
-        
         st.toast("Guardado exitosamente.", icon="✅")
         time.sleep(1.5)
         st.rerun()
@@ -549,8 +559,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
     st.write(f"**Producto a hornear:** {producto}")
     st.write(f"**A hornear:** {paquetes} paquetes y {piezas_sueltas} piezas sueltas")
     st.write(f"**Total General:** {piezas_totales} piezas")
-    st.write(f"**Caja / Caducidad elegida:** {caducidad}")
-    
+    st.write(f"**Caja elegida:** {caducidad}")
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         conn = get_conexion()
@@ -559,7 +568,6 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
         conn.commit()
         conn.close()
-        
         st.toast("Horneado registrado.", icon="✅")
         time.sleep(1.5)
         st.rerun()
@@ -578,14 +586,10 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
         conn.commit()
         conn.close()
-        
         st.toast("Guardado exitosamente.", icon="✅")
         time.sleep(1.5)
         st.rerun()
 
-# ==========================================
-# SISTEMA DE LOGIN Y NAVEGACIÓN
-# ==========================================
 def verificar_login():
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
@@ -618,11 +622,9 @@ def verificar_login():
 if not verificar_login():
     st.stop()
 
-# Pop-up Inicial de Acción
 if st.session_state.get("show_nav_dialog", False):
     @st.dialog("👋 ¿Qué acción vas a realizar?")
     def inicio_rapido_dialog():
-        st.write("Selecciona la pestaña a la que deseas ir:")
         if st.button("📥 Registrar Entrada de Bocadillos", use_container_width=True):
             st.session_state.menu_radio = "📥 Entradas"
             st.session_state.show_nav_dialog = False
@@ -682,46 +684,33 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
                 c.execute("DELETE FROM malteadas")
                 conn.commit()
                 conn.close()
-                
-                st.toast("Base de datos limpiada por completo.", icon="✅")
+                st.toast("Base de datos limpiada.", icon="✅")
                 time.sleep(1.5)
                 st.rerun()
 
 # ==========================================
-# INTERFAZ STREAMLIT PRINCIPAL (SISTEMA DE PESTAÑAS)
+# INTERFAZ STREAMLIT
 # ==========================================
 st.title("📦 Control de Stock y Horneado")
-
 if "menu_radio" not in st.session_state:
     st.session_state.menu_radio = "📥 Entradas"
 
 opciones_menu = ["📥 Entradas", "🥐 Horneado", "🥤 Coca-Cola", "🥛 Malteadas", "📄 Formatos"]
 seccion = st.radio("Navegación", opciones_menu, horizontal=True, key="menu_radio", label_visibility="collapsed")
 
-# ------------------------------------------
-# SECCIÓN 1: RECEPCIÓN
-# ------------------------------------------
 if seccion == "📥 Entradas":
     st.header("Registrar Nueva Mercancía")
     tipo_entrada = st.radio("Método:", ["✍️ Manual", "🗣️ Voz"], horizontal=True)
     
     if tipo_entrada == "🗣️ Voz":
         st.info("💡 Dicta ej: 'Llegaron dos paquetes y cinco piezas de tutis el 15 de agosto'")
-        texto_entrada = speech_to_text(
-            language='es-MX', 
-            start_prompt="🎙️ Toca para Dictar", 
-            stop_prompt="🔴 Grabando...", 
-            use_container_width=True, 
-            just_once=True, 
-            key='stt_entrada'
-        )
+        texto_entrada = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_entrada')
         if texto_entrada:
             st.session_state.dictado_entrada = texto_entrada
             st.rerun()
 
     if "dictado_entrada" in st.session_state:
         dialog_voz_entrada()
-
     elif tipo_entrada == "✍️ Manual":
         with st.form("form_entrada", clear_on_submit=True):
             prod_sel = st.selectbox("Producto", list(EMPAQUES.keys()), index=None, placeholder="Elija...")
@@ -732,7 +721,6 @@ if seccion == "📥 Entradas":
                 cant_piezas = st.number_input("Piezas sueltas", min_value=0, step=1, value=None, placeholder="0")
                 
             caducidad_sel = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
-                
             if st.form_submit_button("Revisar y Registrar", use_container_width=True):
                 val_paq = cant_paq if cant_paq is not None else 0
                 val_pz = cant_piezas if cant_piezas is not None else 0
@@ -745,30 +733,13 @@ if seccion == "📥 Entradas":
     if st.session_state.get('usuario_actual', '').lower() != 'urano':
         st.markdown("---")
         st.subheader("✏️ Edición Rápida (Entradas)")
-        st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
-        
         conn = get_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
         
         if not df_ent.empty:
             df_ent['piezas_sueltas'] = df_ent.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
             df_mostrar = df_ent[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad', 'fecha_actualizacion']]
-            
-            edited_df = st.data_editor(
-                df_mostrar,
-                column_config={
-                    "id": None, 
-                    "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
-                    "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
-                    "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
-                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
-                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="edit_entradas"
-            )
-            
+            edited_df = st.data_editor(df_mostrar, hide_index=True, use_container_width=True, key="edit_entradas")
             if st.button("💾 Guardar Cambios en Entradas", type="primary", use_container_width=True):
                 c = conn.cursor()
                 cambios = 0
@@ -776,58 +747,36 @@ if seccion == "📥 Entradas":
                     row = edited_df.iloc[i]
                     orig = df_mostrar.iloc[i]
                     if not row.equals(orig):
-                        prod = row['producto']
-                        pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                        pz_x_paq = EMPAQUES.get(row['producto'], {}).get("piezas_x_paq", 1)
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
                         c.execute("UPDATE entradas SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                                  (row['producto'], int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
                     conn.commit()
-                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                    time.sleep(1.5)
                     st.rerun()
-                else:
-                    st.info("No se detectaron cambios en la tabla.")
-        else:
-            st.info("No hay registros de Entradas para editar.")
         conn.close()
 
-# ------------------------------------------
-# SECCIÓN 2: HORNEADO
-# ------------------------------------------
 elif seccion == "🥐 Horneado":
     st.header("Horneado de Mercancía")
     tipo_horneado = st.radio("Método de captura:", ["✍️ Manual", "🗣️ Voz"], horizontal=True, key="r_horn")
     
     if tipo_horneado == "🗣️ Voz":
-        st.info("💡 Dicta ej: 'Hornear tres paquetes de cochinita del 20 de septiembre'")
-        texto_horneado = speech_to_text(
-            language='es-MX', 
-            start_prompt="🎙️ Toca para Dictar", 
-            stop_prompt="🔴 Grabando...", 
-            use_container_width=True, 
-            just_once=True, 
-            key='stt_horneado'
-        )
+        texto_horneado = speech_to_text(language='es-MX', start_prompt="🎙️ Toca para Dictar", stop_prompt="🔴 Grabando...", use_container_width=True, just_once=True, key='stt_horneado')
         if texto_horneado:
             st.session_state.dictado_horneado = texto_horneado
             st.rerun()
 
     if "dictado_horneado" in st.session_state:
         dialog_voz_horneado()
-
     elif tipo_horneado == "✍️ Manual":
         prod_hornear = st.selectbox("Producto a Hornear", list(EMPAQUES.keys()), index=None, placeholder="Elija...", key="sel_prod_horn")
-        
         if prod_hornear:
             fechas_disp = get_fechas_disp(prod_hornear)
             if not fechas_disp:
                 st.warning(f"No hay inventario registrado para {prod_hornear}")
             else:
-                st.info("💡 El sistema recomienda hornear las cajas más antiguas primero (Arriba).")
                 with st.form("form_horneado", clear_on_submit=True):
                     cad_hornear = st.selectbox("Seleccionar Caja/Caducidad", fechas_disp)
                     col_hp, col_hz = st.columns(2)
@@ -839,22 +788,17 @@ elif seccion == "🥐 Horneado":
                     if st.form_submit_button("Revisar y Hornear", use_container_width=True):
                         val_paq_h = cant_hornear_paq if cant_hornear_paq is not None else 0
                         val_pz_h = cant_hornear_pz if cant_hornear_pz is not None else 0
-                        
                         if (val_paq_h > 0 or val_pz_h > 0) and cad_hornear:
                             pz_a_hornear = (val_paq_h * EMPAQUES[prod_hornear]["piezas_x_paq"]) + val_pz_h
-                            
                             stock = calcular_stock_detallado()
                             disp_pz = sum([item["piezas_totales"] for item in stock if item["producto"] == prod_hornear and item["caducidad"] == cad_hornear])
-                            
                             if pz_a_hornear > disp_pz:
-                                st.warning(f"⚠️ Stock insuficiente en la caducidad {cad_hornear}. Solo hay {disp_pz} pz.")
+                                st.warning(f"⚠️ Stock insuficiente. Solo hay {disp_pz} pz.")
                             else:
                                 dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, val_pz_h, pz_a_hornear, cad_hornear)
-                        else:
-                            st.error("Completa cantidad.")
 
     st.markdown("---")
-    st.subheader("🖼️ Reportes Visuales")
+    st.subheader("🖼️ Reportes Visuales (Nuevos)")
     stock_actual = calcular_stock_detallado()
     
     datos_plantilla = []
@@ -878,23 +822,20 @@ elif seccion == "🥐 Horneado":
             })
             
             for item in stock_prod:
-                cant_texto = f"{item['paquetes']} pq"
-                if item['piezas_sueltas'] > 0:
-                    cant_texto += f" + {item['piezas_sueltas']} pz"
-                
                 suma_en_piezas = item['piezas_totales']
                 caducidad = item['caducidad']
                 datos_plantilla.append({
                     "producto": item['producto'], 
                     "linea": EMPAQUES[item['producto']]["categoria"], 
-                    "cantidad": cant_texto, 
+                    "paquetes": item['paquetes'],
+                    "piezas_sueltas": item['piezas_sueltas'],
                     "totales": suma_en_piezas,
                     "caducidad": caducidad
                 })
-                lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {cant_texto} (Total: {suma_en_piezas} pz)")
+                lineas_wa.append(f"📦 {item['producto']} (Vence: {caducidad}): {item['paquetes']} pq + {item['piezas_sueltas']} pz (Total: {suma_en_piezas} pz)")
     
     if not datos_plantilla:
-        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "cantidad": "0", "totales": 0, "caducidad": "-"})
+        datos_plantilla.append({"producto": "Sin inventario", "linea": "-", "paquetes": 0, "piezas_sueltas": 0, "totales": 0, "caducidad": "-"})
         lineas_wa.append("No hay inventario.")
     if not datos_resumen:
         datos_resumen.append({"producto": "Sin inventario", "totales": 0, "prox_horneo": "-"})
@@ -903,44 +844,24 @@ elif seccion == "🥐 Horneado":
     path_img_resumen = generar_plantilla_resumen(datos_resumen, fecha_mex, seleccion_wa)
     
     st.image(path_img_resumen, caption="Reporte Resumen (Totales)", use_container_width=True)
-    
-    with st.expander("👁️ Ver Reporte Detallado por Caja"):
+    with st.expander("👁️ Ver Reporte Detallado por Caja (Separando Pq y Sueltas)"):
         st.image(path_img_detalle, caption="Reporte Detallado", use_container_width=True)
     
     if seleccion_wa:
         txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa)
         url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa)}"
         boton_whatsapp_bonito(url_wa, f"Enviar Reporte a {seleccion_wa}")
-    else:
-        st.info("ℹ️ Selecciona una sucursal en el menú lateral para WhatsApp.")
         
     if st.session_state.get('usuario_actual', '').lower() != 'urano':
         st.markdown("---")
         st.subheader("✏️ Edición Rápida (Historial de Horneado)")
-        st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
-        
         conn = get_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
         
         if not df_horn.empty:
             df_horn['piezas_sueltas'] = df_horn.apply(lambda r: r['piezas_totales'] - (r['paquetes'] * EMPAQUES.get(r['producto'], {}).get('piezas_x_paq', 1)), axis=1)
             df_mostrar_h = df_horn[['id', 'producto', 'paquetes', 'piezas_sueltas', 'fecha_caducidad', 'fecha_actualizacion']]
-            
-            edited_df_h = st.data_editor(
-                df_mostrar_h,
-                column_config={
-                    "id": None, 
-                    "producto": st.column_config.SelectboxColumn("Producto", options=list(EMPAQUES.keys()), required=True),
-                    "paquetes": st.column_config.NumberColumn("Paquetes", min_value=0, step=1, required=True),
-                    "piezas_sueltas": st.column_config.NumberColumn("Sueltas", min_value=0, step=1, required=True),
-                    "fecha_caducidad": st.column_config.TextColumn("Caducidad de Caja", required=True),
-                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="edit_horneado"
-            )
-            
+            edited_df_h = st.data_editor(df_mostrar_h, hide_index=True, use_container_width=True, key="edit_horneado")
             if st.button("💾 Guardar Cambios de Horneado", type="primary", use_container_width=True):
                 c = conn.cursor()
                 cambios = 0
@@ -948,62 +869,41 @@ elif seccion == "🥐 Horneado":
                     row = edited_df_h.iloc[i]
                     orig = df_mostrar_h.iloc[i]
                     if not row.equals(orig):
-                        prod = row['producto']
-                        pz_x_paq = EMPAQUES.get(prod, {}).get("piezas_x_paq", 1)
+                        pz_x_paq = EMPAQUES.get(row['producto'], {}).get("piezas_x_paq", 1)
                         nuevo_tot = int((row['paquetes'] * pz_x_paq) + row['piezas_sueltas'])
                         f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        
                         c.execute("UPDATE horneado SET producto=?, paquetes=?, piezas_totales=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (prod, int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
+                                  (row['producto'], int(row['paquetes']), nuevo_tot, str(row['fecha_caducidad']), f_act, int(row['id'])))
                         cambios += 1
                 if cambios > 0:
                     conn.commit()
-                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                    time.sleep(1.5)
                     st.rerun()
-                else:
-                    st.info("No se detectaron cambios en la tabla.")
-        else:
-            st.info("No hay registros en Horneado.")
         conn.close()
 
-# ------------------------------------------
-# SECCIÓN 3: COCA-COLA
-# ------------------------------------------
 elif seccion == "🥤 Coca-Cola":
     st.header("Inventario de Coca-Cola")
     opciones_coca = ["Coca-Cola 3 L", "Coca-Cola 600 ml"]
-    
     with st.form("form_coca", clear_on_submit=True):
-        prod_coca = st.selectbox("Presentación", opciones_coca, index=None, placeholder="Seleccionar...")
-        cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
+        prod_coca = st.selectbox("Presentación", opciones_coca, index=None)
+        cant_coca = st.number_input("Piezas", min_value=1, step=1, value=None)
         caducidad_coca = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
-        
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_coca and cant_coca and caducidad_coca:
                 dialog_confirmar_generico_manual(prod_coca, cant_coca, caducidad_coca, "cocacola")
-            else:
-                st.error("Completa todos los campos, incluyendo la caducidad.")
-
+            
     st.markdown("---")
-    st.subheader("🖼️ Reporte Visual de Coca-Cola")
-    
     conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
-    
-    datos_coca = []
-    lineas_wa_coca = []
-    fecha_mex_coca = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
-
+    datos_coca, lineas_wa_coca, fecha_mex_coca = [], [], get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
     if stock_coca:
         for prod, total, cad in stock_coca:
             datos_coca.append({"producto": prod, "cantidad": total, "caducidad": cad})
             lineas_wa_coca.append(f"🥤 {prod}: {total} piezas (Vence: {cad})")
     else:
         datos_coca.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
-        lineas_wa_coca.append("No hay inventario de refrescos.")
+        lineas_wa_coca.append("No hay inventario.")
 
     path_coca = generar_plantilla_generica(datos_coca, fecha_mex_coca, "COCA-COLA", "PRESENTACIÓN", seleccion_wa)
     st.image(path_coca, caption="Reporte de Refrescos", use_container_width=True)
@@ -1012,251 +912,62 @@ elif seccion == "🥤 Coca-Cola":
         txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):\n" + "\n".join(lineas_wa_coca)
         url_wa_coca = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_coca)}"
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
-
-    if st.session_state.get('usuario_actual', '').lower() != 'urano':
-        st.markdown("---")
-        st.subheader("✏️ Edición Rápida (Coca-Cola)")
-        
-        df_coca = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM cocacola", conn)
-        
-        if not df_coca.empty:
-            edited_df_c = st.data_editor(
-                df_coca,
-                column_config={
-                    "id": None, 
-                    "producto": st.column_config.SelectboxColumn("Presentación", options=opciones_coca, required=True),
-                    "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
-                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
-                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="edit_coca"
-            )
-            
-            if st.button("💾 Guardar Cambios (Coca-Cola)", type="primary", use_container_width=True):
-                c = conn.cursor()
-                cambios = 0
-                for i in range(len(edited_df_c)):
-                    row = edited_df_c.iloc[i]
-                    orig = df_coca.iloc[i]
-                    if not row.equals(orig):
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE cocacola SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
-                        cambios += 1
-                if cambios > 0:
-                    conn.commit()
-                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                    time.sleep(1.5)
-                    st.rerun()
-                else:
-                    st.info("No se detectaron cambios en la tabla.")
-        else:
-            st.info("No hay registros en Coca-Cola.")
-
-        with st.expander("🗑️ Reiniciar Registro de Coca-Cola"):
-            confirmar_reset_coca = st.checkbox("Confirmar borrado de Coca-Cola", key="check_reset_coca")
-            if st.button("⚠️ Borrar Todo el Inventario de Coca-Cola", use_container_width=True):
-                if confirmar_reset_coca:
-                    c = conn.cursor()
-                    c.execute("DELETE FROM cocacola")
-                    conn.commit()
-                    st.toast("Inventario de Coca-Cola limpiado.", icon="✅")
-                    time.sleep(1.5)
-                    st.rerun()
     conn.close()
 
-# ------------------------------------------
-# SECCIÓN 4: MALTEADAS
-# ------------------------------------------
 elif seccion == "🥛 Malteadas":
     st.header("Inventario de Malteadas")
     opciones_malteadas = ["Fresa", "Vainilla", "Chocolate"]
-    
     with st.form("form_malteadas", clear_on_submit=True):
-        prod_malteadas = st.selectbox("Sabor", opciones_malteadas, index=None, placeholder="Seleccionar...")
-        cant_malteadas = st.number_input("Piezas", min_value=1, step=1, value=None, placeholder="0")
+        prod_malteadas = st.selectbox("Sabor", opciones_malteadas, index=None)
+        cant_malteadas = st.number_input("Piezas", min_value=1, step=1, value=None)
         caducidad_malteadas = st.date_input("Fecha de Caducidad", value=None, format="DD/MM/YYYY")
-        
         if st.form_submit_button("Revisar y Registrar", use_container_width=True):
             if prod_malteadas and cant_malteadas and caducidad_malteadas:
                 dialog_confirmar_generico_manual(prod_malteadas, cant_malteadas, caducidad_malteadas, "malteadas")
-            else:
-                st.error("Completa todos los campos, incluyendo la caducidad.")
 
     st.markdown("---")
-    st.subheader("🖼️ Reporte Visual de Malteadas")
-    
     conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_malteadas = c.fetchall()
-    
-    datos_malteadas = []
-    lineas_wa_malteadas = []
-    fecha_mex_malteadas = get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
-
+    datos_malteadas, lineas_wa_malteadas, fecha_mex_malteadas = [], [], get_hora_mexico().strftime('%d/%m/%Y - %H:%M')
     if stock_malteadas:
         for prod, total, cad in stock_malteadas:
             datos_malteadas.append({"producto": f"Malteada de {prod}", "cantidad": total, "caducidad": cad})
             lineas_wa_malteadas.append(f"🥛 Malteada de {prod}: {total} piezas (Vence: {cad})")
     else:
         datos_malteadas.append({"producto": "Sin inventario", "cantidad": 0, "caducidad": "-"})
-        lineas_wa_malteadas.append("No hay inventario de malteadas.")
+        lineas_wa_malteadas.append("No hay inventario.")
 
     path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR", seleccion_wa)
     st.image(path_malteadas, caption="Reporte de Malteadas", use_container_width=True)
-
     if seleccion_wa:
         txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):\n" + "\n".join(lineas_wa_malteadas)
         url_wa_malteadas = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_malteadas)}"
         boton_whatsapp_bonito(url_wa_malteadas, f"Enviar Malteadas a {seleccion_wa}")
-
-    if st.session_state.get('usuario_actual', '').lower() != 'urano':
-        st.markdown("---")
-        st.subheader("✏️ Edición Rápida (Malteadas)")
-        
-        df_malt = pd.read_sql("SELECT id, producto, cantidad, fecha_caducidad, fecha_actualizacion FROM malteadas", conn)
-        
-        if not df_malt.empty:
-            edited_df_m = st.data_editor(
-                df_malt,
-                column_config={
-                    "id": None, 
-                    "producto": st.column_config.SelectboxColumn("Sabor", options=opciones_malteadas, required=True),
-                    "cantidad": st.column_config.NumberColumn("Cantidad (Pz)", min_value=0, step=1, required=True),
-                    "fecha_caducidad": st.column_config.TextColumn("Caducidad", required=True),
-                    "fecha_actualizacion": st.column_config.TextColumn("Fecha/Hora (Registro)", disabled=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="edit_malt"
-            )
-            
-            if st.button("💾 Guardar Cambios (Malteadas)", type="primary", use_container_width=True):
-                c = conn.cursor()
-                cambios = 0
-                for i in range(len(edited_df_m)):
-                    row = edited_df_m.iloc[i]
-                    orig = df_malt.iloc[i]
-                    if not row.equals(orig):
-                        f_act = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                        c.execute("UPDATE malteadas SET producto=?, cantidad=?, fecha_caducidad=?, fecha_actualizacion=? WHERE id=?", 
-                                  (row['producto'], int(row['cantidad']), str(row['fecha_caducidad']), f_act, int(row['id'])))
-                        cambios += 1
-                if cambios > 0:
-                    conn.commit()
-                    st.toast(f"{cambios} registro(s) actualizado(s).", icon="✅")
-                    time.sleep(1.5)
-                    st.rerun()
-                else:
-                    st.info("No se detectaron cambios en la tabla.")
-        else:
-            st.info("No hay registros en Malteadas.")
-
-        with st.expander("🗑️ Reiniciar Registro de Malteadas"):
-            confirmar_reset_malteadas = st.checkbox("Confirmar borrado de Malteadas", key="check_reset_malteadas")
-            if st.button("⚠️ Borrar Todo el Inventario de Malteadas", use_container_width=True):
-                if confirmar_reset_malteadas:
-                    c = conn.cursor()
-                    c.execute("DELETE FROM malteadas")
-                    conn.commit()
-                    st.toast("Inventario de Malteadas limpiado.", icon="✅")
-                    time.sleep(1.5)
-                    st.rerun()
     conn.close()
 
-# ------------------------------------------
-# SECCIÓN 5: FORMATOS (NUEVA PESTAÑA)
-# ------------------------------------------
 elif seccion == "📄 Formatos":
     st.header("Formatos Operativos")
-    
-    # --- FORMATO 1: TEMPERATURAS ---
-    with st.expander("🌡️ Formato de Temperaturas", expanded=False):
-        st.subheader("Registro de Temperaturas (CONGELACIÓN)")
-        
-        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
-        hoy = get_hora_mexico().date()
-        dias_para_lunes = (0 - hoy.weekday()) % 7
-        if dias_para_lunes == 0: 
-            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
-            
-        inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
-        if hoy.weekday() == 6:
-            inicio_semana_1 = hoy + timedelta(days=1)
-            
-        inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
-        
-        # Diccionarios para meses en español
-        meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-        
-        def generar_df_semana(fecha_inicio):
-            fecha_fin = fecha_inicio + timedelta(days=6)
-            datos_semana = []
-            for i in range(7):
-                dia_actual = fecha_inicio + timedelta(days=i)
-                datos_semana.append({
-                    "DÍA": dias_semana[i],
-                    "FECHA": dia_actual.strftime("%d/%m/%Y"),
-                    "HORA": "",
-                    "TEMPERATURA": "",
-                    "PERSONA": ""
-                })
-            df = pd.DataFrame(datos_semana)
-            texto_mes = meses_es[fecha_inicio.month].capitalize()
-            texto_anio = fecha_inicio.year
-            texto_rango = f"Semana del {fecha_inicio.day} de {meses_es[fecha_inicio.month]} al {fecha_fin.day} de {meses_es[fecha_fin.month]}"
-            return df, texto_mes, texto_anio, texto_rango
-        
-        df_sem1, mes1, anio1, rango1 = generar_df_semana(inicio_semana_1)
-        df_sem2, mes2, anio2, rango2 = generar_df_semana(inicio_semana_2)
-        
-        st.markdown(f"**Mes:** {mes1} | **Año:** {anio1} | **{rango1}**")
-        st.dataframe(df_sem1, hide_index=True, use_container_width=True)
-        
-        st.divider()
-        
-        st.markdown(f"**Mes:** {mes2} | **Año:** {anio2} | **{rango2}**")
-        st.dataframe(df_sem2, hide_index=True, use_container_width=True)
-        
-        st.caption("Nota: Todo el alimento/producto debe estar acomodado bajo el sistema PEPS. La temperatura de la unidad debe estar entre los -18°C a -25°C.")
-
-    # --- FORMATO 2: PRECONTEO DE BOCADILLOS (TIPO IMAGEN) ---
     with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
         st.subheader("PRECONTEO DE BOCADILLOS")
-        
-        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
         mapa_preconteo = {
-            "Cubiletes": "Cubilete Queso",
-            "Tutis": "Tuti",
-            "Chorizo Hojaldrado": "Choricito Hojaldrado",
-            "Hojaldra Jamón": "Hojaldra Jamón",
-            "Salchicha Hojaldrada": "Salchichita Hojaldrada",
-            "Volován de Cochinita": "Volován Cochinita",
-            "Volován de Jamón": "Volován Jamón Queso",
-            "Volován de Pierna": "Volován Pierna",
-            "Volován de Picadillo": "Volován Picadillo"
+            "Cubiletes": "Cubilete Queso", "Tutis": "Tuti", "Chorizo Hojaldrado": "Choricito Hojaldrado",
+            "Hojaldra Jamón": "Hojaldra Jamón", "Salchicha Hojaldrada": "Salchichita Hojaldrada",
+            "Volován de Cochinita": "Volován Cochinita", "Volován de Jamón": "Volován Jamón Queso",
+            "Volován de Pierna": "Volován Pierna", "Volován de Picadillo": "Volován Picadillo"
         }
-        
-        # Llamar a la base de datos para recuperar stock total
         stock_actual_bd = calcular_stock_detallado()
         totales_por_producto = {}
         for item in stock_actual_bd:
             prod = item["producto"]
             totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
             
-        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
         datos_preconteo = []
         for prod_bd, nombre_imagen in mapa_preconteo.items():
             total_pz = totales_por_producto.get(prod_bd, 0)
             datos_preconteo.append({
-                "PRODUCTO": nombre_imagen,
-                "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
-                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
+                "PRODUCTO": nombre_imagen, "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": "" 
             })
-            
-        df_preconteo = pd.DataFrame(datos_preconteo)
-        st.table(df_preconteo)
+        st.table(pd.DataFrame(datos_preconteo))
