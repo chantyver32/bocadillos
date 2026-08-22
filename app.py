@@ -110,7 +110,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# CÁLCULOS
+# CÁLCULOS DE INVENTARIO
 # ==========================================
 def calcular_stock_detallado():
     conn = get_conexion()
@@ -161,7 +161,7 @@ def get_fechas_disp(producto):
     return fechas
 
 # ==========================================
-# MOTOR VISUAL EXACTO AL DISEÑO 
+# MOTOR VISUAL EXACTO AL DISEÑO 94607.jpg
 # ==========================================
 def get_font(names, size):
     for name in names:
@@ -169,13 +169,12 @@ def get_font(names, size):
         except: continue
     return ImageFont.load_default()
 
-def dibujar_tabla_clon(titulo, columnas, datos_agrupados, fecha_str, sucursal="", filename="reporte.png"):
-    # Medidas y proporciones ajustadas
+def dibujar_tabla_clon(titulo, columnas, datos_agrupados, fecha_str, col_roja_idx, col_texto_idx, sucursal="", filename="reporte.png"):
+    width = 850
     margin_x = 40
-    width = 950
-    row_height = 65
-    cat_height = 55
-    header_height = 65
+    row_height = 60
+    cat_height = 50
+    header_height = 75
     
     total_rows = sum(len(filas) for filas in datos_agrupados.values())
     total_cats = len(datos_agrupados.keys())
@@ -186,36 +185,34 @@ def dibujar_tabla_clon(titulo, columnas, datos_agrupados, fecha_str, sucursal=""
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
-    # Paleta de colores exacta de la imagen
-    WINE_DARK = (140, 29, 47)      # Fondo encabezado
-    WINE_TEXT = (140, 29, 47)      # Título principal y categorías
-    RED_NUMBERS = (164, 25, 38)    # Números en la tabla
-    LIGHT_PINK = (248, 233, 235)   # Fondo de categorías
-    TEXT_DARK = (51, 51, 51)       # Nombres de productos
-    TEXT_GRAY = (120, 120, 120)    # Fechas
+    # Paleta de colores exacta de la imagen 94607.jpg
+    WINE_DARK = (142, 33, 50)      # Encabezados y títulos
+    CAT_BG = (248, 239, 240)       # Fondo de fila de categoría
+    ROW_EVEN = (255, 255, 255)     # Fila datos blanca
+    ROW_ODD = (252, 249, 249)      # Fila datos levemente gris/rosa
+    TEXT_DARK = (60, 60, 60)       # Textos comunes
+    TEXT_RED = (170, 20, 35)       # Texto resaltado (CANT. PESADA / SUELTAS)
+    TEXT_GRAY = (120, 120, 120)    # Fecha
     WHITE = (255, 255, 255)
-    LINE_COLOR = (235, 235, 235)   # Líneas divisorias
     
-    # Fuentes (Buscamos las más parecidas a Arial/Helvetica bold limpias)
-    font_top = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
-    font_title = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 36)
-    font_date = get_font(["Arial.ttf", "DejaVuSans.ttf", "arial.ttf"], 16)
-    font_th = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 14)
-    font_cat = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 16)
-    font_td = get_font(["Arial.ttf", "DejaVuSans.ttf", "arial.ttf"], 16)
-    font_td_bold = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"], 18)
+    # Fuentes robustas limpias tipo Sans-Serif
+    font_top = get_font(["Arial.ttf", "DejaVuSans.ttf", "Helvetica.ttf"], 14)
+    font_title = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "Helvetica-Bold.ttf"], 34)
+    font_date = get_font(["Arial.ttf", "DejaVuSans.ttf", "Helvetica.ttf"], 14)
+    font_th = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "Helvetica-Bold.ttf"], 13)
+    font_cat = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "Helvetica-Bold.ttf"], 14)
+    font_td = get_font(["Arial.ttf", "DejaVuSans.ttf", "Helvetica.ttf"], 15)
+    font_td_bold = get_font(["Arial Bold.ttf", "DejaVuSans-Bold.ttf", "Helvetica-Bold.ttf"], 16)
     
-    # Encabezado superior
+    # --- ENCABEZADOS SUPERIORES ---
     y = 50
     texto_top = "CONTROL DE INSUMOS"
-    if sucursal:
-        texto_top += f" - {sucursal.upper()}"
-    # Tracking falso
-    texto_top_spaced = "   ".join(list(texto_top)) 
+    if sucursal: texto_top += f" - {sucursal.upper()}"
+    texto_top_spaced = "   ".join(list(texto_top)) # Tracking amplio
     draw.text((width//2, y), texto_top_spaced, fill=TEXT_DARK, font=font_top, anchor="mm")
     
     y += 70
-    draw.text((width//2, y), titulo.upper(), fill=WINE_TEXT, font=font_title, anchor="mm")
+    draw.text((width//2, y), titulo.upper(), fill=WINE_DARK, font=font_title, anchor="mm")
     
     y += 45
     draw.text((width//2, y), fecha_str, fill=TEXT_GRAY, font=font_date, anchor="mm")
@@ -223,151 +220,137 @@ def dibujar_tabla_clon(titulo, columnas, datos_agrupados, fecha_str, sucursal=""
     y += 60
     table_width = width - (margin_x * 2)
     
-    # Fondo curvo del Header de la tabla
-    draw.rounded_rectangle([margin_x, y, width - margin_x, y + header_height], radius=12, fill=WINE_DARK)
-    draw.rectangle([margin_x, y + header_height - 12, width - margin_x, y + header_height], fill=WINE_DARK)
+    # --- HEADER DE LA TABLA ---
+    draw.rounded_rectangle([margin_x, y, width - margin_x, y + header_height], radius=8, fill=WINE_DARK)
+    draw.rectangle([margin_x, y + header_height - 8, width - margin_x, y + header_height], fill=WINE_DARK) # Bordes rectos abajo
     
-    # Calcular anchos de columnas dinámicamente según la cantidad
+    # Calcular anchos de columnas
     num_cols = len(columnas)
-    if num_cols == 4: col_widths = [0.45, 0.18, 0.18, 0.19] # Producto, Paquetes, Sueltas, Total
-    elif num_cols == 3: col_widths = [0.50, 0.25, 0.25]
+    if num_cols == 4: col_widths = [0.18, 0.18, 0.46, 0.18]
+    elif num_cols == 3: col_widths = [0.22, 0.56, 0.22]
     else: col_widths = [1.0 / num_cols] * num_cols
     
     col_x = [margin_x]
     for w in col_widths:
         col_x.append(col_x[-1] + (table_width * w))
         
-    # Dibujar títulos de columnas
     for i, col_name in enumerate(columnas):
-        # La primera columna va alineada a la izquierda, las demás centradas
-        if i == 0:
-            cx = col_x[i] + 30
-            draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor="lm")
+        # Alinear a la izquierda solo la columna de Texto (PRODUCTO), las demás al centro
+        if i == col_texto_idx: 
+            cx = col_x[i] + 20
+            anchor = "lm"
         else:
             cx = col_x[i] + ((col_x[i+1] - col_x[i]) // 2)
-            # Para columnas como "CANT.\nPAQUETES" que pueden tener salto de línea
-            if "\n" in col_name:
-                lineas = col_name.split("\n")
-                draw.text((cx, y + header_height//2 - 10), lineas[0], fill=WHITE, font=font_th, anchor="mm")
-                draw.text((cx, y + header_height//2 + 10), lineas[1], fill=WHITE, font=font_th, anchor="mm")
-            else:
-                draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor="mm")
+            anchor = "mm"
+            
+        if "\n" in col_name:
+            lines = col_name.split("\n")
+            draw.text((cx, y + header_height//2 - 10), lines[0], fill=WHITE, font=font_th, anchor=anchor)
+            draw.text((cx, y + header_height//2 + 10), lines[1], fill=WHITE, font=font_th, anchor=anchor)
+        else:
+            draw.text((cx, y + header_height//2), col_name, fill=WHITE, font=font_th, anchor=anchor)
             
     y += header_height
     
-    # Dibujar Filas
+    # --- FILAS Y CATEGORÍAS ---
     for cat, filas in datos_agrupados.items():
-        # Fila Categoría (Rosa)
-        draw.rectangle([margin_x, y, width - margin_x, y + cat_height], fill=LIGHT_PINK)
-        draw.text((margin_x + 20, y + cat_height//2), cat, fill=WINE_TEXT, font=font_cat, anchor="lm")
+        # Fondo y línea inferior de categoría
+        draw.rectangle([margin_x, y, width - margin_x, y + cat_height], fill=CAT_BG)
+        draw.line([margin_x, y + cat_height - 1, width - margin_x, y + cat_height - 1], fill=WINE_DARK, width=2)
+        draw.text((margin_x + 20, y + cat_height//2), cat.upper(), fill=WINE_DARK, font=font_cat, anchor="lm")
         y += cat_height
         
-        # Filas de Productos
         for f_idx, fila in enumerate(filas):
-            # Fondo blanco
-            draw.rectangle([margin_x, y, width - margin_x, y + row_height], fill=WHITE)
+            # Cebra de filas (blanco / gris-rosa muy sutil)
+            bg_color = ROW_EVEN if f_idx % 2 == 0 else ROW_ODD
+            draw.rectangle([margin_x, y, width - margin_x, y + row_height], fill=bg_color)
             
             for i, val in enumerate(fila):
                 text_val = str(val)
-                if i == 0:
-                    # Nombre del producto (Gris oscuro, Izquierda)
+                if i == col_texto_idx:
                     cx = col_x[i] + 20
                     draw.text((cx, y + row_height//2), text_val, fill=TEXT_DARK, font=font_td, anchor="lm")
                 else:
-                    # Cantidades (Rojo Bold, Centrado)
                     cx = col_x[i] + ((col_x[i+1] - col_x[i]) // 2)
-                    draw.text((cx, y + row_height//2), text_val, fill=RED_NUMBERS, font=font_td_bold, anchor="mm")
+                    color = TEXT_RED if i == col_roja_idx else TEXT_DARK
+                    fnt = font_td_bold if i == col_roja_idx else font_td
+                    draw.text((cx, y + row_height//2), text_val, fill=color, font=fnt, anchor="mm")
                     
-            # Línea inferior divisoria
-            draw.line([margin_x, y + row_height, width - margin_x, y + row_height], fill=LINE_COLOR, width=1)
             y += row_height
             
-    # Remate curvo al final de la tabla (opcional para estética)
-    draw.rounded_rectangle([margin_x, y, width - margin_x, y + 10], radius=10, fill=WHITE)
-    
     img.save(filename)
     return filename
 
 def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
-    """Genera la plantilla detallada (Desglosa Paquetes y Sueltas) basándose en la Imagen 2"""
+    """Genera plantilla de 4 columnas ordenadas igual a tu ejemplo de insumos"""
     agrupados = {}
     for item in datos:
         prod = item.get("producto", "")
         if prod == "Sin inventario":
-            agrupados["📁 INVENTARIO"] = [[prod, "0", "0", "0"]]
+            agrupados["📁 INVENTARIO"] = [["0", "0", prod, "0"]]
             continue
             
         linea = item.get("linea", "Otros")
-        if linea.lower() == "mixta":
-            cat = "📁 HOJALDRAS MIX"
-        else:
-            cat = f"📁 BOCADILLOS {linea.upper()}S"
-            
-        if cat not in agrupados:
-            agrupados[cat] = []
+        cat = "📁 HOJALDRAS MIX" if linea.lower() == "mixta" else f"📁 BOCADILLOS {linea.upper()}S"
+        if cat not in agrupados: agrupados[cat] = []
             
         prod_name = str(prod).upper()
         if "PZA" not in prod_name and "PAQ" not in prod_name:
             prod_name += " PZA" if linea != "Mixta" else " PAQ/48"
             
+        # Orden de impresión: [Col 1, Col 2 (Roja), Col 3 (Texto Lado), Col 4]
         agrupados[cat].append([
-            prod_name,
             str(item.get("paquetes", "0")),
             str(item.get("piezas_sueltas", "0")),
+            prod_name,
             str(item.get("totales", "0"))
         ])
         
-    cols = ["PRODUCTO", "CANT.\nPAQUETES", "CANT.\nSUELTAS", "TOTAL\n(PIEZAS)"]
-    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (DETALLE)", cols, agrupados, fecha_str, sucursal, "reporte_detalle.png")
+    cols = ["CANT.\nPAQUETES", "CANT.\nSUELTAS", "PRODUCTO", "TOTAL\n(PIEZAS)"]
+    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (DETALLE)", cols, agrupados, fecha_str, col_roja_idx=1, col_texto_idx=2, sucursal=sucursal, filename="reporte_detalle.png")
 
 def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
-    """Genera la plantilla de totales (Suma Global y Próximo Horneo)"""
+    """Genera plantilla de 3 columnas"""
     agrupados = {}
     for item in datos:
         prod = item.get("producto", "Sin nombre")
         if prod == "Sin inventario":
-            agrupados["📁 INVENTARIO"] = [[prod, "0", "-"]]
+            agrupados["📁 INVENTARIO"] = [["0", prod, "-"]]
             continue
             
         linea = EMPAQUES.get(prod, {}).get("categoria", "Otros")
-        if linea.lower() == "mixta":
-            cat = "📁 HOJALDRAS MIX"
-        else:
-            cat = f"📁 BOCADILLOS {linea.upper()}S"
-            
-        if cat not in agrupados:
-            agrupados[cat] = []
+        cat = "📁 HOJALDRAS MIX" if linea.lower() == "mixta" else f"📁 BOCADILLOS {linea.upper()}S"
+        if cat not in agrupados: agrupados[cat] = []
             
         prod_name = prod.upper()
         if "PZA" not in prod_name and "PAQ" not in prod_name:
             prod_name += " PZA" if linea != "Mixta" else " PAQ/48"
             
         agrupados[cat].append([
-            prod_name,
             str(item.get("totales", "0")),
+            prod_name,
             str(item.get("prox_horneo", "-"))
         ])
         
-    cols = ["PRODUCTO", "TOTAL\n(PIEZAS)", "PRÓXIMO\nHORNEO"]
-    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (TOTALES)", cols, agrupados, fecha_str, sucursal, "reporte_resumen.png")
+    cols = ["TOTAL\n(PIEZAS)", "PRODUCTO", "PRÓXIMO\nHORNEO"]
+    return dibujar_tabla_clon("RESUMEN DE BOCADILLOS (TOTALES)", cols, agrupados, fecha_str, col_roja_idx=0, col_texto_idx=1, sucursal=sucursal, filename="reporte_resumen.png")
 
 def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACIÓN", sucursal=""):
     agrupados = {f"📁 {titulo.upper()}": []}
     for item in datos:
         prod_name = str(item.get("producto", "")).upper()
         agrupados[f"📁 {titulo.upper()}"].append([
-            prod_name,
             str(item.get("cantidad", "0")),
+            prod_name,
             str(item.get("caducidad", "-"))
         ])
         
     filename = f"reporte_{titulo.lower().replace(' ', '_')}.png"
-    return dibujar_tabla_clon(titulo, [col1_nombre, "CANT.\nTOTAL", "CADUCIDAD"], agrupados, fecha_str, sucursal, filename)
+    return dibujar_tabla_clon(titulo, ["CANTIDAD", col1_nombre, "CADUCIDAD"], agrupados, fecha_str, col_roja_idx=0, col_texto_idx=1, sucursal=sucursal, filename=filename)
 
 # ==========================================
-# (El resto del código de voz, whatsapp, logins y Streamlit permanece intacto)
+# UTILIDADES Y PROCESAMIENTO
 # ==========================================
-
 def procesar_texto_voz(texto):
     texto_norm = texto.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
     
@@ -382,16 +365,11 @@ def procesar_texto_voz(texto):
         
     prod_encontrado = None
     aliases = {
-        "hojaldra": "Hojaldra Jamón",
-        "volovan de jamon": "Volován de Jamón",
-        "cochinita": "Volován de Cochinita",
-        "picadillo": "Volován de Picadillo",
-        "pierna": "Volován de Pierna",
-        "chorizo": "Chorizo Hojaldrado",
-        "salchicha": "Salchicha Hojaldrada",
-        "cubilete": "Cubiletes",
-        "tuti": "Tutis",
-        "jamon": "Volován de Jamón"
+        "hojaldra": "Hojaldra Jamón", "volovan de jamon": "Volován de Jamón",
+        "cochinita": "Volován de Cochinita", "picadillo": "Volován de Picadillo",
+        "pierna": "Volován de Pierna", "chorizo": "Chorizo Hojaldrado",
+        "salchicha": "Salchicha Hojaldrada", "cubilete": "Cubiletes",
+        "tuti": "Tutis", "jamon": "Volován de Jamón"
     }
     for alias, prod_real in aliases.items():
         if alias in texto_norm:
@@ -438,6 +416,9 @@ def boton_whatsapp_bonito(url, texto):
     """
     st.markdown(html_wa, unsafe_allow_html=True)
 
+# ==========================================
+# DIÁLOGOS DE CONFIRMACIÓN
+# ==========================================
 @st.dialog("🎙️ Revisar y Guardar Dictado (Entrada)")
 def dialog_voz_entrada():
     texto = st.session_state.dictado_entrada
@@ -448,10 +429,8 @@ def dialog_voz_entrada():
     
     prod_sel = st.selectbox("Producto detectado:", list(EMPAQUES.keys()), index=idx, placeholder="Corregir producto...")
     col1, col2 = st.columns(2)
-    with col1:
-        paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
-    with col2:
-        pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+    with col1: paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
+    with col2: pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
     
     cad_sel = st.date_input("Fecha de Caducidad:", value=fecha_enc, format="DD/MM/YYYY")
         
@@ -468,7 +447,6 @@ def dialog_voz_entrada():
             conn.commit()
             conn.close()
             del st.session_state.dictado_entrada
-            
             st.toast("Guardado.", icon="✅")
             time.sleep(1.5)
             st.rerun()
@@ -497,16 +475,12 @@ def dialog_voz_horneado():
         idx_cad = 0
         if fecha_enc:
             fecha_enc_str = fecha_enc.strftime("%d/%m/%Y")
-            if fecha_enc_str in fechas_disp:
-                idx_cad = fechas_disp.index(fecha_enc_str)
+            if fecha_enc_str in fechas_disp: idx_cad = fechas_disp.index(fecha_enc_str)
                 
         cad_sel = st.selectbox("Selecciona la fecha a hornear (Caducidad):", fechas_disp, index=idx_cad)
-        
         col1, col2 = st.columns(2)
-        with col1:
-            paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
-        with col2:
-            pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
+        with col1: paq_sel = st.number_input("Paquetes:", min_value=0, step=1, value=paq_enc)
+        with col2: pz_sel = st.number_input("Piezas sueltas:", min_value=0, step=1, value=pz_enc)
             
         if st.button("🔥 Confirmar Horneado", use_container_width=True):
             if prod_sel and (paq_sel > 0 or pz_sel > 0) and cad_sel:
@@ -798,7 +772,7 @@ elif seccion == "🥐 Horneado":
                                 dialog_confirmar_horneado_manual(prod_hornear, val_paq_h, val_pz_h, pz_a_hornear, cad_hornear)
 
     st.markdown("---")
-    st.subheader("🖼️ Reportes Visuales (Nuevos)")
+    st.subheader("🖼️ Reportes Visuales (Estilo Insumos)")
     stock_actual = calcular_stock_detallado()
     
     datos_plantilla = []
@@ -941,6 +915,7 @@ elif seccion == "🥛 Malteadas":
 
     path_malteadas = generar_plantilla_generica(datos_malteadas, fecha_mex_malteadas, "MALTEADAS", "SABOR", seleccion_wa)
     st.image(path_malteadas, caption="Reporte de Malteadas", use_container_width=True)
+    
     if seleccion_wa:
         txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):\n" + "\n".join(lineas_wa_malteadas)
         url_wa_malteadas = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_malteadas)}"
