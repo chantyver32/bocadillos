@@ -1,5 +1,6 @@
 import re
 import time
+import os
 import sqlite3
 import urllib.parse
 from datetime import datetime, timedelta
@@ -8,12 +9,28 @@ import pandas as pd
 import streamlit as st
 from streamlit_mic_recorder import speech_to_text
 
+# Intentamos cargar Turso, si no está instalado o hay error, usamos el local
+try:
+    import libsql_experimental as sqlite3_turso
+except ImportError:
+    sqlite3_turso = sqlite3
+
 # ==========================================
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
 
 DB_NAME = "inventario_bocadillos.db"
+
+def get_conexion():
+    turso_url = os.environ.get("TURSO_DATABASE_URL")
+    turso_token = os.environ.get("TURSO_AUTH_TOKEN")
+    if turso_url and turso_token:
+        try:
+            return sqlite3_turso.connect(turso_url, auth_token=turso_token)
+        except TypeError:
+            pass
+    return sqlite3.connect(DB_NAME)
 
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
@@ -32,7 +49,7 @@ def get_hora_mexico():
     return datetime.now(tz_mexico)
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -101,7 +118,7 @@ init_db()
 # FUNCIONES AUXILIARES Y GENERACIÓN HTML
 # ==========================================
 def calcular_stock_detallado():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     
     c.execute("SELECT producto, fecha_caducidad, SUM(piezas_totales) FROM entradas GROUP BY producto, fecha_caducidad")
@@ -151,7 +168,7 @@ def get_fechas_disp(producto):
 
 def generar_html_tabla(titulo, subtitulo, columnas, claves_datos, datos, fecha_str, sucursal=""):
     WINE = "#8b1c31"
-    html = f"""<div style="background-color: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); max-width: 900px; margin: auto; margin-bottom: 20px;">
+    html = f'''<div style="background-color: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); max-width: 900px; margin: auto; margin-bottom: 20px;">
     <div style="text-align: center; color: {WINE}; font-family: 'Georgia', serif;">
     <h1 style="margin: 0; font-size: 32px; font-weight: bold;">Champlitte {sucursal.title() if sucursal else ''}</h1>
     <h4 style="margin: 5px 0 15px 0; color: #333; letter-spacing: 2px; font-size: 12px; font-family: sans-serif; font-weight: bold;">{subtitulo}</h4>
@@ -162,19 +179,24 @@ def generar_html_tabla(titulo, subtitulo, columnas, claves_datos, datos, fecha_s
     <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-family: sans-serif; font-size: 14px; min-width: 600px;">
     <thead>
     <tr style="background-color: {WINE}; color: white; text-align: center; font-size: 12px;">
-    """
+    '''
     for i, col in enumerate(columnas):
         rad_l = "border-top-left-radius: 8px;" if i == 0 else ""
         rad_r = "border-top-right-radius: 8px;" if i == len(columnas)-1 else ""
-        html += f'<th style="padding: 12px; {rad_l} {rad_r}">{col}</th>\n'
+        html += f'<th style="padding: 12px; {rad_l} {rad_r}">{col}</th>
+'
         
-    html += "</tr>\n</thead>\n<tbody>\n"
+    html += "</tr>
+</thead>
+<tbody>
+"
 
     row_color_alt = False
     for row in datos:
         bg_color = "#fffafb" if row_color_alt else "#ffffff"
         row_color_alt = not row_color_alt
-        html += f'<tr style="background-color: {bg_color}; border-bottom: 1px solid #f0f0f0; text-align: center; color: {WINE}; font-weight: bold; font-size: 13px;">\n'
+        html += f'<tr style="background-color: {bg_color}; border-bottom: 1px solid #f0f0f0; text-align: center; color: {WINE}; font-weight: bold; font-size: 13px;">
+'
         
         for idx, clave in enumerate(claves_datos):
             val = row.get(clave, "-")
@@ -192,13 +214,19 @@ def generar_html_tabla(titulo, subtitulo, columnas, claves_datos, datos, fecha_s
             else:
                 style += "font-weight: normal; color: #555;"
                 
-            html += f'<td style="{style}">{val}</td>\n'
-        html += "</tr>\n"
+            html += f'<td style="{style}">{val}</td>
+'
+        html += "</tr>
+"
 
     if not datos:
-        html += f'<tr><td colspan="{len(columnas)}" style="padding: 20px; text-align: center; color: #666; font-style: italic;">No hay inventario registrado.</td></tr>\n'
+        html += f'<tr><td colspan="{len(columnas)}" style="padding: 20px; text-align: center; color: #666; font-style: italic;">No hay inventario registrado.</td></tr>
+'
 
-    html += "</tbody>\n</table>\n</div>\n</div>"
+    html += "</tbody>
+</table>
+</div>
+</div>"
     return html
 
 def procesar_texto_voz(texto):
@@ -262,13 +290,13 @@ def procesar_texto_voz(texto):
     return prod_encontrado, paquetes, piezas, fecha_detectada
 
 def boton_whatsapp_bonito(url, texto):
-    html_wa = f"""
+    html_wa = f'''
     <a href="{url}" target="_blank" style="background-color: #25D366; color: white; text-align: center; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-family: sans-serif; display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; box-sizing: border-box; font-size: 16px;">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16"><path d="M11.42 9.49c-.19-.09-1.1-.54-1.27-.61s-.29-.09-.41.1-.48.61-.59.73-.21.14-.4.05a5.1 5.1 0 0 1-1.5-.92 5.54 5.54 0 0 1-1.04-1.29c-.11-.18 0-.28.09-.38.08-.09.19-.21.28-.32a1.36 1.36 0 0 0 .19-.32.54.54 0 0 0-.03-.52c-.05-.09-.41-1-.56-1.37-.15-.36-.3-.31-.41-.31h-.35a.68.68 0 0 0-.49.23 2.06 2.06 0 0 0-.64 1.53c0 1.22 1.25 2.4 1.42 2.63.17.23 1.79 2.73 4.33 3.82.6.26 1.07.41 1.44.53.6.19 1.15.16 1.58.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.15-1.18-.06-.1-.23-.15-.42-.24zM8 14.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13zM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0z"/></svg>
         {texto}
     </a>
     <br>
-    """
+    '''
     st.markdown(html_wa, unsafe_allow_html=True)
 
 # ==========================================
@@ -300,7 +328,7 @@ def dialog_voz_entrada():
             fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
             cad_str = cad_sel.strftime("%d/%m/%Y")
             
-            conn = sqlite3.connect(DB_NAME)
+            conn = get_conexion()
             c = conn.cursor()
             c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                       (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -362,7 +390,7 @@ def dialog_voz_horneado():
                     st.info(f"**Horneado:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_a_hornear} pz)")
                     
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    conn = sqlite3.connect(DB_NAME)
+                    conn = get_conexion()
                     c = conn.cursor()
                     c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                               (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
@@ -390,7 +418,7 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -410,7 +438,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
     
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
@@ -429,7 +457,7 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         c = conn.cursor()
         c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
@@ -455,7 +483,7 @@ def verificar_login():
             usuario_input = st.text_input("👤 Usuario:")
             password_input = st.text_input("🔑 Contraseña:", type="password")
             if st.form_submit_button("Iniciar Sesión", use_container_width=True):
-                conn = sqlite3.connect(DB_NAME)
+                conn = get_conexion()
                 c = conn.cursor()
                 c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
                 user = c.fetchone()
@@ -531,7 +559,7 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
         confirmar_reset = st.checkbox("Confirmar borrado", key="check_reset")
         if st.button("⚠️ RESET TOTAL", use_container_width=True):
             if confirmar_reset:
-                conn = sqlite3.connect(DB_NAME)
+                conn = get_conexion()
                 c = conn.cursor()
                 c.execute("DELETE FROM entradas")
                 c.execute("DELETE FROM horneado")
@@ -605,7 +633,7 @@ if seccion == "📥 Entradas":
         st.subheader("✏️ Edición Rápida (Entradas)")
         st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
         
         if not df_ent.empty:
@@ -775,7 +803,10 @@ elif seccion == "🥐 Horneado":
         st.markdown(html_detalle, unsafe_allow_html=True)
     
     if seleccion_wa:
-        txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):\n" + "\n".join(lineas_wa) if lineas_wa else f"Stock ({seleccion_wa} | {fecha_mex}):\nNo hay inventario."
+        txt_wa = f"Stock ({seleccion_wa} | {fecha_mex}):
+" + "
+".join(lineas_wa) if lineas_wa else f"Stock ({seleccion_wa} | {fecha_mex}):
+No hay inventario."
         url_wa = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa)}"
         boton_whatsapp_bonito(url_wa, f"Enviar Reporte a {seleccion_wa}")
     else:
@@ -787,7 +818,7 @@ elif seccion == "🥐 Horneado":
         st.subheader("✏️ Edición Rápida (Historial de Horneado)")
         st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
         
         if not df_horn.empty:
@@ -856,7 +887,7 @@ elif seccion == "🥤 Coca-Cola":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Coca-Cola")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
@@ -884,7 +915,9 @@ elif seccion == "🥤 Coca-Cola":
     st.markdown(html_coca, unsafe_allow_html=True)
 
     if seleccion_wa:
-        txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):\n" + "\n".join(lineas_wa_coca)
+        txt_wa_coca = f"Coca-Cola ({seleccion_wa} | {fecha_mex_coca}):
+" + "
+".join(lineas_wa_coca)
         url_wa_coca = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_coca)}"
         boton_whatsapp_bonito(url_wa_coca, f"Enviar Coca-Cola a {seleccion_wa}")
 
@@ -964,7 +997,7 @@ elif seccion == "🥛 Malteadas":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Malteadas")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_malteadas = c.fetchall()
@@ -992,7 +1025,9 @@ elif seccion == "🥛 Malteadas":
     st.markdown(html_malteadas, unsafe_allow_html=True)
 
     if seleccion_wa:
-        txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):\n" + "\n".join(lineas_wa_malteadas)
+        txt_wa_malteadas = f"Malteadas ({seleccion_wa} | {fecha_mex_malteadas}):
+" + "
+".join(lineas_wa_malteadas)
         url_wa_malteadas = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(txt_wa_malteadas)}"
         boton_whatsapp_bonito(url_wa_malteadas, f"Enviar Malteadas a {seleccion_wa}")
 
@@ -1061,11 +1096,10 @@ elif seccion == "📄 Formatos":
     with st.expander("🌡️ Formato de Temperaturas", expanded=False):
         st.subheader("Registro de Temperaturas (CONGELACIÓN)")
         
-        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
         hoy = get_hora_mexico().date()
         dias_para_lunes = (0 - hoy.weekday()) % 7
         if dias_para_lunes == 0: 
-            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
+            dias_para_lunes = 7 
             
         inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
         if hoy.weekday() == 6:
@@ -1073,7 +1107,6 @@ elif seccion == "📄 Formatos":
             
         inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
         
-        # Diccionarios para meses en español
         meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
         
@@ -1112,7 +1145,6 @@ elif seccion == "📄 Formatos":
     with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
         st.subheader("PRECONTEO DE BOCADILLOS")
         
-        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
         mapa_preconteo = {
             "Cubiletes": "Cubilete Queso",
             "Tutis": "Tuti",
@@ -1125,24 +1157,20 @@ elif seccion == "📄 Formatos":
             "Volován de Picadillo": "Volován Picadillo"
         }
         
-        # Llamar a la base de datos para recuperar stock total
         stock_actual_bd = calcular_stock_detallado()
         totales_por_producto = {}
         for item in stock_actual_bd:
             prod = item["producto"]
             totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
             
-        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
         datos_preconteo = []
         for prod_bd, nombre_imagen in mapa_preconteo.items():
             total_pz = totales_por_producto.get(prod_bd, 0)
             datos_preconteo.append({
                 "PRODUCTO": nombre_imagen,
                 "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
-                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""
             })
             
         df_preconteo = pd.DataFrame(datos_preconteo)
-        
-        # Mostrar usando st.table para un formato estático mucho más parecido al visual de la imagen impresa
         st.table(df_preconteo)
