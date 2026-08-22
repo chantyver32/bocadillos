@@ -1,6 +1,6 @@
 import re
 import time
-import sqlite3
+import libsql_experimental as libsql
 import urllib.parse
 from datetime import datetime, timedelta
 import pytz
@@ -12,8 +12,6 @@ from streamlit_mic_recorder import speech_to_text
 # CONFIGURACIÓN Y BASE DE DATOS
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
-
-DB_NAME = "inventario_bocadillos.db"
 
 EMPAQUES = {
     "Cubiletes": {"categoria": "Dulce", "piezas_x_paq": 16},
@@ -31,8 +29,14 @@ def get_hora_mexico():
     tz_mexico = pytz.timezone('America/Mexico_City')
     return datetime.now(tz_mexico)
 
+def crear_conexion():
+    """Conexión centralizada a Turso usando los secrets de Streamlit."""
+    url = st.secrets["TURSO_DATABASE_URL"]
+    auth_token = st.secrets["TURSO_AUTH_TOKEN"]
+    return libsql.connect(database=url, auth_token=auth_token)
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = crear_conexion()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -84,7 +88,6 @@ def init_db():
                     fecha_actualizacion TEXT
                 )''')
 
-    # --- SOLUCIÓN PARA STREAMLIT CLOUD ---
     # Función auxiliar segura para agregar columnas solo si no existen
     def agregar_columna_segura(tabla, columna, tipo):
         c.execute(f"PRAGMA table_info({tabla})")
@@ -92,7 +95,6 @@ def init_db():
         if columna not in columnas_actuales:
             c.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
 
-    # Aplicamos el parche a todas las tablas para evitar el ValueError
     agregar_columna_segura("entradas", "fecha_actualizacion", "TEXT")
     agregar_columna_segura("horneado", "fecha_actualizacion", "TEXT")
     agregar_columna_segura("horneado", "fecha_caducidad", "TEXT")
@@ -107,7 +109,7 @@ init_db()
 # FUNCIONES AUXILIARES Y GENERACIÓN HTML
 # ==========================================
 def calcular_stock_detallado():
-    conn = sqlite3.connect(DB_NAME)
+    conn = crear_conexion()
     c = conn.cursor()
     
     c.execute("SELECT producto, fecha_caducidad, SUM(piezas_totales) FROM entradas GROUP BY producto, fecha_caducidad")
@@ -306,7 +308,7 @@ def dialog_voz_entrada():
             fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
             cad_str = cad_sel.strftime("%d/%m/%Y")
             
-            conn = sqlite3.connect(DB_NAME)
+            conn = crear_conexion()
             c = conn.cursor()
             c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                       (prod_sel, paq_sel, pz_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -368,7 +370,7 @@ def dialog_voz_horneado():
                     st.info(f"**Horneado:** {paq_sel} paquetes y {pz_sel} piezas sueltas (Total: {pz_a_hornear} pz)")
                     
                     fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-                    conn = sqlite3.connect(DB_NAME)
+                    conn = crear_conexion()
                     c = conn.cursor()
                     c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                               (prod_sel, paq_sel, pz_a_hornear, fecha_ahora, fecha_ahora, cad_sel))
@@ -396,7 +398,7 @@ def dialog_confirmar_entrada_manual(producto, paquetes, piezas_sueltas, piezas_t
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = crear_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO entradas (producto, paquetes, piezas_totales, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, cad_str, fecha_ahora, fecha_ahora))
@@ -416,7 +418,7 @@ def dialog_confirmar_horneado_manual(producto, paquetes, piezas_sueltas, piezas_
     
     if st.button("🔥 Confirmar Horneado", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
-        conn = sqlite3.connect(DB_NAME)
+        conn = crear_conexion()
         c = conn.cursor()
         c.execute("INSERT INTO horneado (producto, paquetes, piezas_totales, fecha_hora, fecha_actualizacion, fecha_caducidad) VALUES (?, ?, ?, ?, ?, ?)",
                   (producto, paquetes, piezas_totales, fecha_ahora, fecha_ahora, caducidad))
@@ -435,7 +437,7 @@ def dialog_confirmar_generico_manual(producto, cantidad, caducidad, tabla):
     if st.button("✅ Confirmar y Guardar", use_container_width=True):
         fecha_ahora = get_hora_mexico().strftime("%d/%m/%Y %H:%M:%S")
         cad_str = caducidad.strftime("%d/%m/%Y")
-        conn = sqlite3.connect(DB_NAME)
+        conn = crear_conexion()
         c = conn.cursor()
         c.execute(f"INSERT INTO {tabla} (producto, cantidad, fecha_caducidad, fecha_registro, fecha_actualizacion) VALUES (?, ?, ?, ?, ?)",
                   (producto, cantidad, cad_str, fecha_ahora, fecha_ahora))
@@ -461,7 +463,7 @@ def verificar_login():
             usuario_input = st.text_input("👤 Usuario:")
             password_input = st.text_input("🔑 Contraseña:", type="password")
             if st.form_submit_button("Iniciar Sesión", use_container_width=True):
-                conn = sqlite3.connect(DB_NAME)
+                conn = crear_conexion()
                 c = conn.cursor()
                 c.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (usuario_input.strip(), password_input))
                 user = c.fetchone()
@@ -537,7 +539,7 @@ if st.session_state.get('usuario_actual', '').lower() == 'admin':
         confirmar_reset = st.checkbox("Confirmar borrado", key="check_reset")
         if st.button("⚠️ RESET TOTAL", use_container_width=True):
             if confirmar_reset:
-                conn = sqlite3.connect(DB_NAME)
+                conn = crear_conexion()
                 c = conn.cursor()
                 c.execute("DELETE FROM entradas")
                 c.execute("DELETE FROM horneado")
@@ -611,7 +613,7 @@ if seccion == "📥 Entradas":
         st.subheader("✏️ Edición Rápida (Entradas)")
         st.caption("Edita directamente las cantidades o caducidad en la tabla y presiona Guardar. *El ID está oculto por comodidad.*")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = crear_conexion()
         df_ent = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM entradas", conn)
         
         if not df_ent.empty:
@@ -793,7 +795,7 @@ elif seccion == "🥐 Horneado":
         st.subheader("✏️ Edición Rápida (Historial de Horneado)")
         st.caption("Modificar estas salidas afectará el inventario total disponible de forma automática.")
         
-        conn = sqlite3.connect(DB_NAME)
+        conn = crear_conexion()
         df_horn = pd.read_sql("SELECT id, producto, paquetes, piezas_totales, fecha_caducidad, fecha_actualizacion FROM horneado", conn)
         
         if not df_horn.empty:
@@ -862,7 +864,7 @@ elif seccion == "🥤 Coca-Cola":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Coca-Cola")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = crear_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM cocacola GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_coca = c.fetchall()
@@ -970,7 +972,7 @@ elif seccion == "🥛 Malteadas":
     st.markdown("---")
     st.subheader("🖼️ Reporte Visual de Malteadas")
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = crear_conexion()
     c = conn.cursor()
     c.execute("SELECT producto, SUM(cantidad), fecha_caducidad FROM malteadas GROUP BY producto, fecha_caducidad ORDER BY fecha_caducidad ASC")
     stock_malteadas = c.fetchall()
@@ -1067,11 +1069,10 @@ elif seccion == "📄 Formatos":
     with st.expander("🌡️ Formato de Temperaturas", expanded=False):
         st.subheader("Registro de Temperaturas (CONGELACIÓN)")
         
-        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
         hoy = get_hora_mexico().date()
         dias_para_lunes = (0 - hoy.weekday()) % 7
         if dias_para_lunes == 0: 
-            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
+            dias_para_lunes = 7
             
         inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
         if hoy.weekday() == 6:
@@ -1079,7 +1080,6 @@ elif seccion == "📄 Formatos":
             
         inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
         
-        # Diccionarios para meses en español
         meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
         
@@ -1114,11 +1114,10 @@ elif seccion == "📄 Formatos":
         
         st.caption("Nota: Todo el alimento/producto debe estar acomodado bajo el sistema PEPS. La temperatura de la unidad debe estar entre los -18°C a -25°C.")
 
-    # --- FORMATO 2: PRECONTEO DE BOCADILLOS (TIPO IMAGEN) ---
+    # --- FORMATO 2: PRECONTEO DE BOCADILLOS ---
     with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
         st.subheader("PRECONTEO DE BOCADILLOS")
         
-        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
         mapa_preconteo = {
             "Cubiletes": "Cubilete Queso",
             "Tutis": "Tuti",
@@ -1131,24 +1130,20 @@ elif seccion == "📄 Formatos":
             "Volován de Picadillo": "Volován Picadillo"
         }
         
-        # Llamar a la base de datos para recuperar stock total
         stock_actual_bd = calcular_stock_detallado()
         totales_por_producto = {}
         for item in stock_actual_bd:
             prod = item["producto"]
             totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
             
-        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
         datos_preconteo = []
         for prod_bd, nombre_imagen in mapa_preconteo.items():
             total_pz = totales_por_producto.get(prod_bd, 0)
             datos_preconteo.append({
                 "PRODUCTO": nombre_imagen,
                 "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
-                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""
             })
             
         df_preconteo = pd.DataFrame(datos_preconteo)
-        
-        # Mostrar usando st.table para un formato estático mucho más parecido al visual de la imagen impresa
         st.table(df_preconteo)
