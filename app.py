@@ -9,7 +9,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from streamlit_mic_recorder import speech_to_text
 
-# Conexión Turso / LibSQL (Koyeb / Cloud) o SQLite local
+# Importamos la librería de Turso haciéndola pasar por sqlite3
 import libsql_experimental as sqlite3
 
 # ==========================================
@@ -17,11 +17,17 @@ import libsql_experimental as sqlite3
 # ==========================================
 st.set_page_config(page_title="Control de Stock", page_icon="📦", layout="centered")
 
-TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
-TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+# Buscamos primero en los secretos de Streamlit (Para la nube)
+if "TURSO_DATABASE_URL" in st.secrets:
+    TURSO_URL = st.secrets["TURSO_DATABASE_URL"]
+    TURSO_TOKEN = st.secrets["TURSO_AUTH_TOKEN"]
+else:
+    # Alternativa por si lo corres localmente sin configurar secretos o en Koyeb
+    TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "file:inventario_bocadillos.db")
+    TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 
 def get_conexion():
-    """Función centralizada para conectar a Turso o a la base local."""
+    """Función centralizada para conectar a Turso o a la base local"""
     if TURSO_TOKEN:
         return sqlite3.connect(TURSO_URL, auth_token=TURSO_TOKEN)
     return sqlite3.connect(TURSO_URL)
@@ -51,7 +57,10 @@ def init_db():
                     password TEXT
                 )''')
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('admin', 'admin')")
+    
+    # Usuario urano sin permisos de edición (contraseña minúscula)
     c.execute("INSERT OR IGNORE INTO usuarios (username, password) VALUES ('urano', 'urano')")
+    # Forzamos la actualización por si ya se había creado con mayúscula en la corrida anterior
     c.execute("UPDATE usuarios SET password = 'urano' WHERE username = 'urano'")
     
     c.execute('''CREATE TABLE IF NOT EXISTS entradas (
@@ -63,10 +72,8 @@ def init_db():
                     fecha_registro TEXT,
                     fecha_actualizacion TEXT
                 )''')
-    try:
-        c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError:
-        pass
+    try: c.execute("ALTER TABLE entradas ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS horneado (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,14 +84,10 @@ def init_db():
                     fecha_actualizacion TEXT,
                     fecha_caducidad TEXT
                 )''')
-    try:
-        c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
-    except sqlite3.OperationalError:
-        pass
+    try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError: pass
+    try: c.execute("ALTER TABLE horneado ADD COLUMN fecha_caducidad TEXT")
+    except sqlite3.OperationalError: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS cocacola (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,10 +97,8 @@ def init_db():
                     fecha_registro TEXT,
                     fecha_actualizacion TEXT
                 )''')
-    try:
-        c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
-    except sqlite3.OperationalError:
-        pass
+    try: c.execute("ALTER TABLE cocacola ADD COLUMN fecha_actualizacion TEXT")
+    except sqlite3.OperationalError: pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS malteadas (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,10 +168,8 @@ def get_fechas_disp(producto):
 
 def get_font(names, size):
     for name in names:
-        try:
-            return ImageFont.truetype(name, size)
-        except:
-            continue
+        try: return ImageFont.truetype(name, size)
+        except: continue
     return ImageFont.load_default()
 
 def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal=""):
@@ -185,8 +184,8 @@ def dibujar_logo_texto(draw, width, color_vino, color_texto_oscuro, sucursal="")
 
     texto_principal = f"Champlitte{texto_sucursal}"
     
-    draw.text((width // 2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
-    draw.text((width // 2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
+    draw.text((width//2, 60), texto_principal, fill=color_vino, font=font_champlitte, anchor="mm")
+    draw.text((width//2, 130), "PASTELERÍA", fill=color_texto_oscuro, font=font_pasteleria, anchor="mm")
 
 def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
     width = 950
@@ -211,8 +210,8 @@ def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width // 2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width//2, y + 35), "BOCADILLOS - DETALLE", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -233,22 +232,22 @@ def generar_plantilla_bocadillos(datos, fecha_str, sucursal=""):
         draw.line([640, y, 640, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([770, y, 770, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((20, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((20, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
 
         linea_texto = str(item.get("linea", ""))
         badge_bg = WINE_LIGHT if "Mixta" in linea_texto else ((252, 230, 230) if "Dulce" in linea_texto else WINE)
         badge_text = WHITE if "Mixta" in linea_texto else (WINE if "Dulce" in linea_texto else WHITE)
 
         badge_w, badge_h = 110, 24
-        badge_x = col_linea - (badge_w // 2)
-        badge_y = y + (row_height // 2) - (badge_h // 2)
+        badge_x = col_linea - (badge_w//2)
+        badge_y = y + (row_height//2) - (badge_h//2)
         if linea_texto != "-":
             draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=12, fill=badge_bg)
-            draw.text((col_linea, y + (row_height // 2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
+            draw.text((col_linea, y + (row_height//2)), linea_texto.upper(), fill=badge_text, font=font_badge, anchor="mm")
 
-        draw.text((col_cant, y + (row_height // 2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
-        draw.text((col_totales, y + (row_height // 2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height // 2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -277,8 +276,8 @@ def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width // 2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
-    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width//2, y + 35), "RESUMEN (TOTALES)", fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -295,9 +294,9 @@ def generar_plantilla_resumen(datos, fecha_str, sucursal=""):
         draw.line([380, y, 380, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([580, y, 580, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((50, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_totales, y + (row_height // 2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height // 2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((col_totales, y + (row_height//2)), str(item.get("totales", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height//2)), str(item.get("prox_horneo", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -327,8 +326,8 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
     dibujar_logo_texto(draw, width, WINE, TEXT_DARK, sucursal)
 
     y = espacio_logo
-    draw.text((width // 2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
-    draw.text((width // 2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
+    draw.text((width//2, y + 35), titulo, fill=WINE, font=font_title, anchor="mm")
+    draw.text((width//2, y + 85), fecha_str, fill=TEXT_DARK, font=font_sub, anchor="mm")
 
     y += header_height
     draw.rectangle([0, y, width, y + table_header_height], fill=WINE)
@@ -345,9 +344,9 @@ def generar_plantilla_generica(datos, fecha_str, titulo, col1_nombre="PRESENTACI
         draw.line([420, y, 420, y + row_height], fill=LINE_COLOR, width=1)
         draw.line([660, y, 660, y + row_height], fill=LINE_COLOR, width=1)
 
-        draw.text((50, y + (row_height // 2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
-        draw.text((col_cant, y + (row_height // 2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
-        draw.text((col_cad, y + (row_height // 2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
+        draw.text((50, y + (row_height//2)), str(item.get("producto", "")), fill=TEXT_DARK, font=font_td, anchor="lm")
+        draw.text((col_cant, y + (row_height//2)), str(item.get("cantidad", "0")), fill=WINE, font=font_th, anchor="mm")
+        draw.text((col_cad, y + (row_height//2)), str(item.get("caducidad", "-")), fill=TEXT_DARK, font=font_th, anchor="mm")
 
         draw.line([0, y + row_height, width, y + row_height], fill=LINE_COLOR, width=1)
         y += row_height
@@ -388,18 +387,15 @@ def procesar_texto_voz(texto):
 
     paquetes = 0
     match_paq = re.search(r'(\d+)\s*(paquete|paquetes|caja|cajas|paq|pq)', texto_norm)
-    if match_paq:
-        paquetes = int(match_paq.group(1))
+    if match_paq: paquetes = int(match_paq.group(1))
         
     piezas = 0
     match_pz = re.search(r'(\d+)\s*(pieza|piezas|suelta|sueltas|pz)', texto_norm)
-    if match_pz:
-        piezas = int(match_pz.group(1))
+    if match_pz: piezas = int(match_pz.group(1))
         
     if paquetes == 0 and piezas == 0:
         match_any = re.search(r'(\d+)', texto_norm)
-        if match_any:
-            paquetes = int(match_any.group(1)) 
+        if match_any: paquetes = int(match_any.group(1)) 
 
     fecha_detectada = None
     meses_dict = {
@@ -1187,7 +1183,7 @@ elif seccion == "🥛 Malteadas":
     conn.close()
 
 # ------------------------------------------
-# SECCIÓN 5: FORMATOS
+# SECCIÓN 5: FORMATOS (NUEVA PESTAÑA)
 # ------------------------------------------
 elif seccion == "📄 Formatos":
     st.header("Formatos Operativos")
@@ -1196,10 +1192,11 @@ elif seccion == "📄 Formatos":
     with st.expander("🌡️ Formato de Temperaturas", expanded=False):
         st.subheader("Registro de Temperaturas (CONGELACIÓN)")
         
+        # Calcular fecha del "próximo lunes" o el inicio de la semana para automatizar el llenado
         hoy = get_hora_mexico().date()
         dias_para_lunes = (0 - hoy.weekday()) % 7
         if dias_para_lunes == 0: 
-            dias_para_lunes = 7
+            dias_para_lunes = 7 # Si hoy es lunes, empezar a proyectar desde el prox. Si hoy es domingo (6), será 1 día (mañana lunes)
             
         inicio_semana_1 = hoy + timedelta(days=dias_para_lunes)
         if hoy.weekday() == 6:
@@ -1207,6 +1204,7 @@ elif seccion == "📄 Formatos":
             
         inicio_semana_2 = inicio_semana_1 + timedelta(days=7)
         
+        # Diccionarios para meses en español
         meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
         
@@ -1241,10 +1239,11 @@ elif seccion == "📄 Formatos":
         
         st.caption("Nota: Todo el alimento/producto debe estar acomodado bajo el sistema PEPS. La temperatura de la unidad debe estar entre los -18°C a -25°C.")
 
-    # --- FORMATO 2: PRECONTEO DE BOCADILLOS ---
-    with st.expander("📝 Formato de Preconteo", expanded=False):
+    # --- FORMATO 2: PRECONTEO DE BOCADILLOS (TIPO IMAGEN) ---
+    with st.expander("📝 Formato de Preconteo (Ref: 1000043855.jpg)", expanded=False):
         st.subheader("PRECONTEO DE BOCADILLOS")
         
+        # Empatamos nombres del sistema con los nombres exactos de la imagen que solicitaste
         mapa_preconteo = {
             "Cubiletes": "Cubilete Queso",
             "Tutis": "Tuti",
@@ -1257,20 +1256,24 @@ elif seccion == "📄 Formatos":
             "Volován de Picadillo": "Volován Picadillo"
         }
         
+        # Llamar a la base de datos para recuperar stock total
         stock_actual_bd = calcular_stock_detallado()
         totales_por_producto = {}
         for item in stock_actual_bd:
             prod = item["producto"]
             totales_por_producto[prod] = totales_por_producto.get(prod, 0) + item["piezas_totales"]
             
+        # Armar las filas imitando los recuadros en blanco para relleno posterior o visualización de totales
         datos_preconteo = []
         for prod_bd, nombre_imagen in mapa_preconteo.items():
             total_pz = totales_por_producto.get(prod_bd, 0)
             datos_preconteo.append({
                 "PRODUCTO": nombre_imagen,
                 "TOTAL SISTEMA (PZ)": total_pz if total_pz > 0 else "",
-                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""
+                " ": "", "  ": "", "   ": "", "    ": "", "     ": "", "      ": ""  # Columnas vacías imitando la hoja
             })
             
         df_preconteo = pd.DataFrame(datos_preconteo)
+        
+        # Mostrar usando st.table para un formato estático mucho más parecido al visual de la imagen impresa
         st.table(df_preconteo)
